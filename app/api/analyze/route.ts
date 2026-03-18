@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import { parseResumeText } from '@/lib/resume-parser';
-import { generateMockAnalysis } from '@/lib/mock-data';
+import { analyzeResumeByModel, SupportedModel } from '@/lib/llm-analysis';
 
 export const runtime = 'nodejs';
 
@@ -46,9 +46,14 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get('file');
+    const model = formData.get('model');
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: '未检测到上传文件' }, { status: 400 });
+    }
+
+    if (!model || (model !== 'qwen3-max' && model !== 'claude-4-opus')) {
+      return NextResponse.json({ error: '请先选择分析模型（Qwen 3 Max / Claude 4 Opus）' }, { status: 400 });
     }
 
     const text = await extractTextFromFile(file);
@@ -57,9 +62,9 @@ export async function POST(req: Request) {
     }
 
     const resume = parseResumeText(text);
-    const result = generateMockAnalysis(resume);
+    const result = await analyzeResumeByModel(model as SupportedModel, resume);
 
-    return NextResponse.json({ result, parsedResume: resume });
+    return NextResponse.json({ result, parsedResume: resume, model });
   } catch (error) {
     const message = error instanceof Error ? error.message : '分析失败';
     return NextResponse.json({ error: message }, { status: 500 });

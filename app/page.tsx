@@ -12,6 +12,7 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<'qwen3-max' | 'claude-4-opus'>('qwen3-max');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -33,6 +34,7 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('model', selectedModel);
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
@@ -133,9 +135,40 @@ export default function Home() {
                   <p className="text-lg font-medium mb-2">
                     拖拽简历文件到这里
                   </p>
-                  <p className="text-sm text-muted mb-6">
-                    支持 PDF、Word 格式（最大 10MB）
+                  <p className="text-sm text-muted mb-4">
+                    支持 PDF、Word、TXT 格式（最大 10MB）
                   </p>
+
+                  <div className="mb-5 text-left">
+                    <p className="text-xs text-muted mb-2">选择分析模型</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedModel('qwen3-max')}
+                        className={cn(
+                          'px-3 py-2 rounded-lg border text-sm transition-all-300',
+                          selectedModel === 'qwen3-max'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted hover:border-muted'
+                        )}
+                      >
+                        Qwen 3 Max
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedModel('claude-4-opus')}
+                        className={cn(
+                          'px-3 py-2 rounded-lg border text-sm transition-all-300',
+                          selectedModel === 'claude-4-opus'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted hover:border-muted'
+                        )}
+                      >
+                        Claude 4 Opus
+                      </button>
+                    </div>
+                  </div>
+
                   <label className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl cursor-pointer transition-all-300 glow">
                     <FileText className="w-4 h-4" />
                     选择文件
