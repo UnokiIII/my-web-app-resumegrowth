@@ -4,53 +4,53 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, FileText, Sparkles, ArrowRight, TrendingUp, Shield, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ResumeData, AnalysisResult, generateMockAnalysis } from '@/lib/mock-data';
+import { AnalysisResult } from '@/lib/mock-data';
 import ReportView from '@/components/ReportView';
 
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await analyzeResume();
+    await analyzeResume(file);
   };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) await analyzeResume();
+    if (file) await analyzeResume(file);
   };
 
-  const analyzeResume = async () => {
+  const analyzeResume = async (file: File) => {
     setIsAnalyzing(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2500));
-    
-    const mockResume: ResumeData = {
-      name: '用户',
-      yearsExperience: 5,
-      currentRole: '产品经理',
-      industry: '互联网/科技',
-      skills: [
-        { name: '产品策略', level: '精通', context: '从0到1搭建多个产品' },
-        { name: '数据分析', level: '熟练', context: '擅长用户行为分析' },
-      ],
-      achievements: [
-        { desc: '主导用户增长项目', metric: 'DAU提升40%', scope: '百万级用户产品' },
-      ],
-      experience: [
-        { company: '某科技公司', role: '高级产品经理', highlights: ['负责核心产品线'] },
-      ],
-      education: '本科',
-      interests: ['AI工具', '一人企业'],
-    };
-    
-    setResult(generateMockAnalysis(mockResume));
-    setIsAnalyzing(false);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || '分析失败，请稍后重试');
+      }
+
+      setResult(payload.result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '分析失败，请稍后重试';
+      setError(message);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   if (result) {
@@ -141,11 +141,14 @@ export default function Home() {
                     选择文件
                     <input
                       type="file"
-                      accept=".pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,.txt"
                       onChange={handleFileUpload}
                       className="hidden"
                     />
                   </label>
+                  {error && (
+                    <p className="mt-4 text-sm text-red-500">{error}</p>
+                  )}
                 </>
               )}
             </div>
