@@ -75,3 +75,50 @@ body {
 .transition-all-300 {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+    overflow: visible !important;
+  }
+
+  .glass {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .glow {
+    box-shadow: none !important;
+  }
+
+  .print-report {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .print-report section,
+  .print-report .rounded-2xl,
+  .print-report .rounded-xl,
+  .print-report .bg-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-report .recharts-responsive-container {
+    min-height: 260px !important;
+  }
+
+  * {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

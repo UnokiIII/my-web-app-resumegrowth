@@ -45,122 +45,150 @@ export interface AnalysisResult {
     week: string;
     tasks: string[];
   }[];
+  routeSelection?: {
+    mainRoute: string;
+    secondaryRoutes: string[];
+    rejectedRoutes: string[];
+    reason: string;
+  };
+  firstDealPlan?: {
+    targetCustomer: string;
+    whereToFind: string;
+    approach: string;
+    closing: string;
+  };
 }
 
 export function generateMockAnalysis(resume: ResumeData): AnalysisResult {
+  const coreSkill = resume.skills[0]?.name || '专业能力';
+  const secondarySkill = resume.skills[1]?.name || '项目推进';
+  const evidence = resume.achievements[0]?.desc || '有可迁移的项目经验与执行记录';
+
   return {
     assets: [
       {
-        name: `${resume.skills[0]?.name || '专业技能'}咨询`,
-        potential: 5,
-        evidence: `具备${resume.yearsExperience}年${resume.industry}经验，${resume.achievements[0]?.desc || '有丰富项目经验'}`,
-        product: `面向中小企业的${resume.industry}咨询服务，客单价3000-8000元`,
+        name: `${coreSkill}专业服务`,
+        potential: 4,
+        evidence: `具备${resume.yearsExperience}年${resume.industry}相关经验，${evidence}`,
+        product: `围绕${coreSkill}提供诊断、陪跑或专项交付服务，先从标准化服务包切入`,
       },
       {
-        name: '内容创作与知识付费',
+        name: `${secondarySkill}标准化方案`,
         potential: 4,
-        evidence: `擅长${resume.skills[1]?.name || '内容输出'}，可系统化输出行业经验`,
-        product: '付费专栏/小册，单价99-299元，配合社群运营',
+        evidence: `简历中可见${secondarySkill}相关经历，适合沉淀方法论与交付模板`,
+        product: '将经验沉淀为标准流程、模板包或阶段性交付方案，提高复用率',
       },
       {
-        name: 'AI工具赋能服务',
-        potential: 4,
-        evidence: '熟悉AI工具链，可为传统企业提供AI转型咨询',
-        product: 'AI工具培训+落地陪跑，客单价5000-15000元',
+        name: `${resume.industry}工具化支持`,
+        potential: 3,
+        evidence: `行业经验与技能组合具备进一步产品化、工具化的可能`,
+        product: '从半定制工具、流程插件或轻量产品开始验证需求，再决定是否继续产品化',
       },
     ],
     positioning: {
-      primary: `${resume.industry}细分领域专家顾问`,
-      alternativeA: '知识IP + 轻咨询模式（低风险）',
-      alternativeB: 'AI+行业垂直SaaS（高天花板）',
+      primary: `${resume.industry}领域的问题解决型服务者`,
+      alternativeA: '标准化服务产品（低风险、易成交）',
+      alternativeB: '工具化 / 产品化方案（更高天花板）',
     },
     growthPath: [
       {
-        phase: '起步期',
+        phase: '验证期',
         duration: '0-3个月',
-        goal: '验证需求，完成首单',
+        goal: '明确最容易成交的问题与服务方式',
         actions: [
-          '建立个人专业形象（LinkedIn/即刻/公众号）',
-          '输出5-10篇垂直领域干货内容',
-          '免费为3-5个潜在客户做轻咨询',
-          '确定首个付费产品形态',
+          '梳理过往项目、成果和可复用能力，明确最强优势资产',
+          '围绕一个细分问题设计最小服务包并验证真实需求',
+          '与潜在客户深聊3-5次，确认最常见痛点与支付意愿',
+          '根据反馈微调交付范围、定价和标准动作',
         ],
-        milestone: '完成首单付费，收入≥3000元',
+        milestone: '完成首个清晰可复用的付费交付案例',
       },
       {
-        phase: '增长期',
+        phase: '标准化期',
         duration: '3-6个月',
-        goal: '稳定获客，月收入破万',
+        goal: '把服务从依赖个人发挥，升级为更稳定的交付系统',
         actions: [
-          '搭建内容矩阵，每周输出2-3篇内容',
-          '建立私域社群（目标500人）',
-          '推出标准化产品（小册/模板/课程）',
-          '建立客户转介绍机制',
+          '把高频动作沉淀为SOP、模板与交付清单',
+          '把服务拆成更清晰的入门版、标准版、进阶版',
+          '建立案例展示与转介绍机制，提升成交稳定性',
+          '筛选更匹配的目标客户，减少无效沟通与低价单',
         ],
-        milestone: '月收入稳定在1-2万',
+        milestone: '形成1-2个可重复售卖的标准化方案',
       },
       {
         phase: '放大期',
         duration: '6-12个月',
-        goal: '规模化，建立被动收入',
+        goal: '在稳定交付基础上尝试规模化与产品化',
         actions: [
-          '推出高价产品（年度顾问/企业培训）',
-          '建立自动化获客漏斗',
-          '开发标准化SOP，可考虑外包/合伙',
-          '探索资本化路径或被动收入产品',
+          '保留高利润服务，同时把部分能力工具化或产品化',
+          '把高频问题整理为更轻量的标准解决方案',
+          '优化获客、成交、交付三段流程，降低单次服务摩擦',
+          '根据数据决定继续深耕服务还是向产品化延伸',
         ],
-        milestone: '月收入3-5万，被动收入占比30%+',
+        milestone: '形成“服务 + 标准化产品/工具”双轮结构',
       },
     ],
     revenueModel: [
       {
         phase: '1-3月',
-        product: '轻咨询（单次诊断+建议）',
-        pricing: '500-1000元/次',
-        target: '职场新人、小企业主',
-        expectedIncome: '3000-8000元/月',
+        product: '问题诊断 / 小型专项服务',
+        pricing: '1000-3000元/次',
+        target: '存在明确问题、愿意快速试用的小团队或个人客户',
+        expectedIncome: '3000-10000元/月',
       },
       {
         phase: '3-6月',
-        product: '小册/模板 + 轻社群',
-        pricing: '99-299元/人',
-        target: '同行业从业者',
-        expectedIncome: '1-2万/月',
+        product: '标准化服务包 / 陪跑方案',
+        pricing: '3000-10000元/项目',
+        target: '需要结果、但预算有限的中小客户',
+        expectedIncome: '1-3万/月',
       },
       {
         phase: '6-12月',
-        product: '深度咨询 + 企业培训',
-        pricing: '5000-20000元/项目',
-        target: '中小企业、创业公司',
+        product: '持续顾问 / 工具化方案 / 进阶产品',
+        pricing: '8000-30000元/项目或订阅',
+        target: '希望持续优化效率或结果的企业客户',
         expectedIncome: '3-5万/月',
       },
     ],
     risks: [
       {
-        point: '时间管理失衡',
-        warning: '主业与副业精力冲突，两者都做不好',
-        solution: '设定固定时间块（如每天2小时），用番茄工作法保持专注',
+        point: '方向判断过宽',
+        warning: '什么都能做，最后什么都难成交',
+        solution: '先聚焦一个最常见且最容易付费的问题场景，逐步扩展',
       },
       {
-        point: '获客渠道单一',
-        warning: '过度依赖单一平台，算法变动导致流量断崖',
-        solution: '3个月内建立至少3个获客渠道（内容+社群+转介绍）',
+        point: '交付过度依赖个人发挥',
+        warning: '每个项目都从头做，难以复制，利润被时间吃掉',
+        solution: '尽早把高频动作沉淀成模板、清单和固定流程',
       },
       {
-        point: '产品定价过低',
-        warning: '低价竞争导致利润微薄，难以持续',
-        solution: '首单即按市场价收费，拒绝"练手价"心理',
+        point: '定价与价值表达不匹配',
+        warning: '客户觉得贵，自己觉得累，最后两边都不满意',
+        solution: '先定义交付边界、结果目标和适用对象，再反推定价',
       },
     ],
     checklist: [
-      { week: '第1周', tasks: ['完善个人资料（各平台统一）', '输出第1篇专业内容'] },
-      { week: '第2周', tasks: ['梳理过往项目案例（3-5个）', '输出第2篇内容'] },
-      { week: '第3周', tasks: ['联系3位潜在客户，免费轻咨询', '收集反馈，打磨产品'] },
-      { week: '第4周', tasks: ['确定付费产品形态与定价', '输出第3篇内容'] },
-      { week: '第5-6周', tasks: ['启动付费咨询（至少1单）', '建立客户反馈机制'] },
-      { week: '第7-8周', tasks: ['输出小册/模板初稿', '启动私域社群运营'] },
-      { week: '第9-10周', tasks: ['正式发布标准化产品', '建立内容发布节奏'] },
-      { week: '第11-12周', tasks: ['复盘前3个月数据', '制定下一阶段增长计划'] },
+      { week: '第1周', tasks: ['梳理3个最能代表能力的项目案例', '写出可解决的3类具体问题'] },
+      { week: '第2周', tasks: ['确定一个最小服务包', '明确交付内容、周期与定价区间'] },
+      { week: '第3周', tasks: ['与3-5位目标用户访谈', '记录他们最愿意付费的问题'] },
+      { week: '第4周', tasks: ['完成首版服务介绍页/方案页', '争取首个付费或强反馈案例'] },
+      { week: '第5-6周', tasks: ['复盘交付过程', '沉淀成模板、SOP、案例'] },
+      { week: '第7-8周', tasks: ['优化版本与报价结构', '提高标准化程度'] },
+      { week: '第9-10周', tasks: ['测试第二个可售卖方案', '建立转介绍或复购路径'] },
+      { week: '第11-12周', tasks: ['根据数据决定重点深耕方向', '规划服务化还是工具化延伸'] },
     ],
+    routeSelection: {
+      mainRoute: '标准化服务型',
+      secondaryRoutes: ['项目制交付型', '顾问/咨询型'],
+      rejectedRoutes: ['内容/IP型'],
+      reason: '当前更适合优先走可在30天内成交的中性服务路线，先用已有经验换首单，再考虑升级。',
+    },
+    firstDealPlan: {
+      targetCustomer: '已有明确问题、预算有限但需要快速结果的中小团队或个体经营者',
+      whereToFind: '过往同事、老客户、行业社群、微信私域、脉脉/LinkedIn 等熟人半熟人网络',
+      approach: '先用一个具体问题切入，给出诊断或小型专项方案，再展示案例与交付边界',
+      closing: '用低风险试单或小单切入，在7天内推进沟通、报价和确认范围，先拿下第一单',
+    },
   };
 }

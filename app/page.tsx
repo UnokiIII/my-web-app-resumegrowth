@@ -1,52 +1,95 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Upload, FileText, Sparkles, ArrowRight, TrendingUp, Shield, Zap } from 'lucide-react';
+import {
+  Upload,
+  FileText,
+  Sparkles,
+  ArrowRight,
+  TrendingUp,
+  Shield,
+  Zap,
+  CheckCircle2,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AnalysisResult } from '@/lib/mock-data';
 import ReportView from '@/components/ReportView';
 
+interface AnalysisMeta {
+  providerKind: 'openai-compatible' | 'openai-native' | 'anthropic-native' | 'gemini-native';
+  requestedModelId: string;
+  resolvedModelId: string;
+  availableModelsSample?: string[];
+}
+
+type ModelOption = 'qwen3.5-flash' | 'custom';
+
 export default function Home() {
-  const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<'qwen3-max' | 'claude-4-opus'>('qwen3-max');
+  const [selectedModel, setSelectedModel] = useState<ModelOption>('qwen3.5-flash');
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [analysisMeta, setAnalysisMeta] = useState<AnalysisMeta | null>(null);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const isCustomModel = selectedModel === 'custom';
+  const backendModel = isCustomModel ? 'claude-4.6-opus' : 'qwen3.5-flash';
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await analyzeResume(file);
+    setSelectedFile(file);
+    setError(null);
   };
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) await analyzeResume(file);
-  };
+  const analyzeResume = async () => {
+    if (!selectedFile) {
+      setError('请先上传简历文件');
+      return;
+    }
 
-  const analyzeResume = async (file: File) => {
+    if (isCustomModel && (!apiBaseUrl.trim() || !apiKey.trim())) {
+      setError('使用自定义模型时，请先填写 API Base URL 和 API Key');
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
-      formData.append('model', selectedModel);
+      formData.append('file', selectedFile);
+      formData.append('model', backendModel);
+
+      if (isCustomModel) {
+        formData.append('apiBaseUrl', apiBaseUrl.trim());
+        formData.append('apiKey', apiKey.trim());
+        formData.append('modelId', modelId.trim());
+      }
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
         body: formData,
       });
 
-      const payload = await response.json();
+      const raw = await response.text();
+      let payload: any = null;
+
+      try {
+        payload = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error('分析接口返回异常，请稍后重试');
+      }
+
       if (!response.ok) {
-        throw new Error(payload.error || '分析失败，请稍后重试');
+        throw new Error(payload?.error || '分析失败，请稍后重试');
       }
 
       setResult(payload.result);
+      setAnalysisMeta(payload.analysisMeta || null);
     } catch (err) {
       const message = err instanceof Error ? err.message : '分析失败，请稍后重试';
       setError(message);
@@ -59,202 +102,204 @@ export default function Home() {
     return <ReportView result={result} onReset={() => setResult(null)} />;
   }
 
+  const features = [
+    { icon: TrendingUp, title: '优势资产识别', desc: '找出最容易变现的能力与经历，减少试错。' },
+    { icon: Zap, title: '多模型接入', desc: '支持内置模型与外部 OpenAI 兼容接口。' },
+    { icon: ArrowRight, title: '执行路线图', desc: '从定位到90天任务清单，直接照着做。' },
+    { icon: Shield, title: '安全中转', desc: '默认只本次请求使用，不保存你填写的 API Key。' },
+  ];
+
   return (
-    <main className="min-h-screen bg-background">
-      {/* Hero Section */}
-      <section className="relative px-6 pt-20 pb-32 overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/20 via-background to-background" />
-        
-        <div className="relative max-w-5xl mx-auto text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8 border border-primary/20">
-              <Sparkles className="w-4 h-4" />
-              AI 驱动的职业分析
-            </span>
-          </motion.div>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
-          >
-            上传简历，获取你的
-            <br />
-            <span className="gradient-text">一人企业成长方案</span>
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-lg sm:text-xl text-muted max-w-2xl mx-auto mb-12"
-          >
-            基于你的经历与技能，AI为你定制专属的商业化路径。
-            <br className="hidden sm:block" />
-            从优势资产盘点到90天执行清单，每一步都清晰可执行。
-          </motion.p>
-
-          {/* Upload Area */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="max-w-xl mx-auto"
-          >
-            <div
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-              className={cn(
-                'relative p-8 sm:p-12 rounded-2xl border-2 border-dashed transition-all-300',
-                isDragging
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-muted hover:bg-card-hover'
-              )}
-            >
-              {isAnalyzing ? (
-                <div className="flex flex-col items-center">
-                  <div className="relative mb-6">
-                    <div className="w-16 h-16 rounded-full border-4 border-border animate-spin border-t-primary" />
-                    <Sparkles className="absolute inset-0 m-auto w-6 h-6 text-primary animate-pulse" />
-                  </div>
-                  <p className="text-lg font-medium">AI 正在分析你的简历...</p>
-                  <p className="text-sm text-muted mt-2">预计需要 10-15 秒</p>
-                </div>
-              ) : (
-                <>
-                  <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-primary/10 flex items-center justify-center">
-                    <Upload className="w-8 h-8 text-primary" />
-                  </div>
-                  <p className="text-lg font-medium mb-2">
-                    拖拽简历文件到这里
-                  </p>
-                  <p className="text-sm text-muted mb-4">
-                    支持 PDF、Word、TXT 格式（最大 10MB）
-                  </p>
-
-                  <div className="mb-5 text-left">
-                    <p className="text-xs text-muted mb-2">选择分析模型</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedModel('qwen3-max')}
-                        className={cn(
-                          'px-3 py-2 rounded-lg border text-sm transition-all-300',
-                          selectedModel === 'qwen3-max'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted hover:border-muted'
-                        )}
-                      >
-                        Qwen 3 Max
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedModel('claude-4-opus')}
-                        className={cn(
-                          'px-3 py-2 rounded-lg border text-sm transition-all-300',
-                          selectedModel === 'claude-4-opus'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted hover:border-muted'
-                        )}
-                      >
-                        Claude 4 Opus
-                      </button>
-                    </div>
-                  </div>
-
-                  <label className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl cursor-pointer transition-all-300 glow">
-                    <FileText className="w-4 h-4" />
-                    选择文件
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.txt"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  {error && (
-                    <p className="mt-4 text-sm text-red-500">{error}</p>
-                  )}
-                </>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="px-6 py-20 border-t border-border">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-4">你将获得什么</h2>
-            <p className="text-muted">6个维度，全方位规划你的一人企业路径</p>
+    <main className="min-h-screen bg-[#0b0d12] text-white">
+      <section className="px-6 pb-16 pt-16 sm:pt-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/85">
+            <Sparkles className="h-4 w-4" />
+            一人企业简历分析引擎
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: TrendingUp,
-                title: '优势资产盘点',
-                desc: '识别你最易变现的3个核心能力，明确产品方向',
-              },
-              {
-                icon: Zap,
-                title: '精准定位建议',
-                desc: '主定位+备选方案，找到最适合你的赛道',
-              },
-              {
-                icon: ArrowRight,
-                title: '清晰成长路径',
-                desc: '0-3月/3-6月/6-12月三阶段规划，目标明确',
-              },
-              {
-                icon: TrendingUp,
-                title: '收入模型设计',
-                desc: '从首单到规模化，产品定价与预期收入',
-              },
-              {
-                icon: Shield,
-                title: '风险预警与对策',
-                desc: '提前识别3大风险点，给出具体解决方案',
-              },
-              {
-                icon: FileText,
-                title: '90天执行清单',
-                desc: '按周拆解任务，可直接执行的行动指南',
-              },
-            ].map((feature, index) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="p-6 rounded-2xl bg-card hover:bg-card-hover transition-all-300 border border-border"
-              >
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
-                  <feature.icon className="w-6 h-6 text-primary" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
-                <p className="text-sm text-muted">{feature.desc}</p>
-              </motion.div>
+          <h1 className="text-4xl font-semibold leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
+            上传你的简历
+            <br />
+            获取你的一人企业成长方案
+          </h1>
+
+          <p className="mt-6 max-w-2xl text-base text-white/70 sm:text-lg">
+            基于你的经历与技能，AI 为你定制专属的商业化路径。
+            <br className="hidden sm:block" />
+            从优势资产盘点到 90 天执行清单，每一步都清晰可执行。
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3 text-sm text-white/75">
+            {['结构化报告', '多模型原生/兼容接入', '可落地行动清单'].map((item) => (
+              <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {item}
+              </span>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="px-6 py-8 border-t border-border">
-        <div className="max-w-5xl mx-auto text-center text-sm text-muted">
-          <p>© 2026 Resume Analyzer. 基于 AI 的职业分析与规划工具。</p>
+      <section className="px-6 pb-10">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7">
+            <div className="mb-4 text-sm font-medium text-white/90">第一步：选择模型</div>
+
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setSelectedModel('qwen3.5-flash')}
+                className={cn(
+                  'block w-full rounded-2xl border px-4 py-4 text-left transition-all',
+                  selectedModel === 'qwen3.5-flash'
+                    ? 'border-white/40 bg-white/14'
+                    : 'border-white/12 bg-transparent hover:border-white/25 hover:bg-white/[0.04]'
+                )}
+              >
+                <div className="text-base font-medium text-white">Qwen 3.5 Plus</div>
+                <div className="mt-1 text-sm text-white/55">内置模型，无需填写任何配置</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedModel('custom')}
+                className={cn(
+                  'block w-full rounded-2xl border px-4 py-4 text-left transition-all',
+                  selectedModel === 'custom'
+                    ? 'border-white/40 bg-white/14'
+                    : 'border-white/12 bg-transparent hover:border-white/25 hover:bg-white/[0.04]'
+                )}
+              >
+                <div className="text-base font-medium text-white">自定义模型</div>
+                <div className="mt-1 text-sm text-white/55">Claude 4.6 Opus / GPT5.4 / Gemini3.1</div>
+              </button>
+            </div>
+
+            {isCustomModel && (
+              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div>
+                  <label className="mb-1.5 block text-xs text-white/60">API Base URL</label>
+                  <input
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    placeholder="https://your-gateway.com/v1"
+                    className="w-full rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none focus:border-white/30"
+                  />
+                  <p className="mt-2 text-xs leading-relaxed text-white/45">
+                    OpenAI 例：https://api.openai.com/v1 ｜ Claude 例：https://api.anthropic.com/v1 ｜ Gemini 例：https://generativelanguage.googleapis.com/v1beta
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs text-white/60">API Key</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none focus:border-white/30"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs text-white/60">Model ID（可选）</label>
+                  <input
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    placeholder="可留空，或填写你习惯的模型名"
+                    className="w-full rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none focus:border-white/30"
+                  />
+                  <p className="mt-2 text-xs leading-relaxed text-white/45">
+                    系统会根据 API 地址和 Key 自动获取可用模型，并匹配最接近的实际 model id。分析结果页会显示：你填写的模型名 → 实际调用的模型名。
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7">
+            <div className="mb-4 text-sm font-medium text-white/90">第二步：上传简历</div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <label className="mb-2 block text-sm text-white/75">选择文件（PDF / DOCX / TXT）</label>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                onChange={handleFileChange}
+                className="block w-full cursor-pointer rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-black"
+              />
+            </div>
+
+            <div
+              className={cn(
+                'mt-4 rounded-2xl border px-4 py-4',
+                selectedFile ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02]'
+              )}
+            >
+              {selectedFile ? (
+                <div className="flex items-center gap-3">
+                  <FileText className="h-5 w-5 text-emerald-300" />
+                  <div>
+                    <div className="text-sm font-medium text-emerald-200">已上传完成</div>
+                    <div className="text-xs text-emerald-200/70">{selectedFile.name}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-white/50">
+                  <Upload className="h-5 w-5" />
+                  <div className="text-sm">尚未上传文件</div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={analyzeResume}
+              disabled={!selectedFile || isAnalyzing}
+              className={cn(
+                'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-medium transition-all',
+                selectedFile && !isAnalyzing
+                  ? 'bg-white text-black shadow-lg shadow-white/10 hover:bg-white/90'
+                  : 'cursor-not-allowed border border-white/10 bg-white/5 text-white/35'
+              )}
+            >
+              {isAnalyzing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+                  正在分析，可能需要1～3分钟...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  开始分析
+                </>
+              )}
+            </button>
+
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          </div>
         </div>
-      </footer>
+      </section>
+
+      <section className="px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="mb-3 text-2xl font-semibold tracking-tight sm:text-3xl">你会拿到什么</h2>
+          <p className="mb-10 text-white/60">简洁但完整的增长建议，从“我是谁”到“下一步做什么”。</p>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map((feature) => (
+              <div key={feature.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
+                  <feature.icon className="h-5 w-5" />
+                </div>
+                <h3 className="mb-2 font-medium">{feature.title}</h3>
+                <p className="text-sm leading-relaxed text-white/60">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
