@@ -15,14 +15,6 @@ export const runtime = 'nodejs';
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 
-function createRuntimeRequire(): NodeJS.Require {
-  return eval('require');
-}
-
-function loadPdfParseCtor(): any {
-  return createRuntimeRequire()('pdf-parse').PDFParse;
-}
-
 function getPythonCandidates() {
   const cwd = process.cwd();
 
@@ -90,6 +82,28 @@ async function runPyMuPdf(buffer: Buffer, mode: 'text' | 'images') {
   }
 }
 
+async function runNodePdfParse(buffer: Buffer, mode: 'text' | 'images' | 'embedded-images') {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'resume-node-pdf-'));
+  const pdfPath = path.join(tmpDir, 'resume.pdf');
+  await fs.writeFile(pdfPath, buffer);
+
+  try {
+    const scriptPath = path.join(process.cwd(), 'scripts', 'pdf_parse_runner.cjs');
+    const { stdout, stderr } = await execFileAsync(process.execPath, [scriptPath, pdfPath, '3', mode], {
+      cwd: process.cwd(),
+      maxBuffer: 50 * 1024 * 1024,
+    });
+
+    if (stderr?.trim()) {
+      console.warn('[pdf_parse_runner stderr]', stderr);
+    }
+
+    return JSON.parse(stdout);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
 async function extractPdfTextWithPyMuPDF(buffer: Buffer) {
   const payload = await runPyMuPdf(buffer, 'text');
   return typeof payload?.text === 'string' ? payload.text : '';
@@ -101,43 +115,18 @@ async function renderPdfPagesToImagesWithPyMuPDF(buffer: Buffer) {
 }
 
 async function extractPdfTextWithNode(buffer: Buffer) {
-  const PDFParse = loadPdfParseCtor();
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-
-  try {
-    const payload = await parser.getText({ first: 3 });
-    return typeof payload?.text === 'string' ? payload.text : '';
-  } finally {
-    await parser.destroy();
-  }
+  const payload = await runNodePdfParse(buffer, 'text');
+  return typeof payload?.text === 'string' ? payload.text : '';
 }
 
 async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
-  const PDFParse = loadPdfParseCtor();
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  const payload = await runNodePdfParse(buffer, 'images');
+  return Array.isArray(payload?.images) ? payload.images : [];
+}
 
-  try {
-    const payload = await parser.getScreenshot({
-      first: 3,
-      scale: 1.8,
-      imageDataUrl: false,
-      imageBuffer: true,
-    });
-
-    if (!Array.isArray(payload?.pages)) {
-      return [];
-    }
-
-    return payload.pages
-      .map((page: { data?: Uint8Array | Buffer | ArrayBuffer }) => {
-        const data = page?.data;
-        if (!data) return null;
-        return Buffer.from(data as ArrayBufferLike).toString('base64');
-      })
-      .filter((item: string | null): item is string => Boolean(item));
-  } finally {
-    await parser.destroy();
-  }
+async function extractEmbeddedPdfImagesWithNode(buffer: Buffer) {
+  const payload = await runNodePdfParse(buffer, 'embedded-images');
+  return Array.isArray(payload?.images) ? payload.images : [];
 }
 
 function buildOcrErrorMessage(message: string) {
@@ -240,6 +229,15 @@ async function extractTextFromPdf(buffer: Buffer, file: File) {
     console.log('[analyze] extract:pdf-parse-images', { count: images.length });
   } catch (error) {
     console.error('[analyze] extract:pdf-parse-images:error', error);
+  }
+
+  if (!images.length) {
+    try {
+      images = await extractEmbeddedPdfImagesWithNode(buffer);
+      console.log('[analyze] extract:pdf-parse-embedded-images', { count: images.length });
+    } catch (error) {
+      console.error('[analyze] extract:pdf-parse-embedded-images:error', error);
+    }
   }
 
   if (!images.length) {
