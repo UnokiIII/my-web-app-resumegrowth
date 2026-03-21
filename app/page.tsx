@@ -20,6 +20,8 @@ interface AnalysisMeta {
   requestedModelId: string;
   resolvedModelId: string;
   availableModelsSample?: string[];
+  fallbackFromModelId?: string;
+  attemptedModelIds?: string[];
 }
 
 type ModelOption = 'qwen3.5-flash' | 'custom';
@@ -34,6 +36,7 @@ export default function Home() {
   const [modelId, setModelId] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [analysisMeta, setAnalysisMeta] = useState<AnalysisMeta | null>(null);
+  const [reportFileName, setReportFileName] = useState<string | null>(null);
 
   const isCustomModel = selectedModel === 'custom';
   const backendModel = isCustomModel ? 'claude-4.6-opus' : 'qwen3.5-flash';
@@ -90,6 +93,7 @@ export default function Home() {
 
       setResult(payload.result);
       setAnalysisMeta(payload.analysisMeta || null);
+      setReportFileName(selectedFile.name);
     } catch (err) {
       const message = err instanceof Error ? err.message : '分析失败，请稍后重试';
       setError(message);
@@ -99,7 +103,17 @@ export default function Home() {
   };
 
   if (result) {
-    return <ReportView result={result} onReset={() => setResult(null)} />;
+    return (
+      <ReportView
+        result={result}
+        analysisMeta={analysisMeta}
+        reportFileName={reportFileName}
+        onReset={() => {
+          setResult(null);
+          setReportFileName(null);
+        }}
+      />
+    );
   }
 
   const features = [

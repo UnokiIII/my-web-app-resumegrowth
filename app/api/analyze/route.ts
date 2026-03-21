@@ -7,11 +7,46 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { parseResumeText } from '@/lib/resume-parser';
 import { analyzeResumeByModel, CustomApiConfig, SupportedModel } from '@/lib/llm-analysis';
+import { buildKnowledgeContext } from '@/lib/knowledge-engine';
+import { buildStrategyOptions } from '@/lib/strategy-options';
 
 export const runtime = 'nodejs';
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
+
+function getPythonCandidates() {
+  const cwd = process.cwd();
+  return process.platform === 'win32'
+    ? [
+        path.join(cwd, '.venv-ocr', 'Scripts', 'python.exe'),
+        path.join(cwd, '.venv-ocr', 'python.exe'),
+        'python',
+        'py',
+      ]
+    : [
+        path.join(cwd, '.venv-ocr', 'bin', 'python'),
+        'python3',
+        'python',
+      ];
+}
+
+async function resolvePythonCommand() {
+  for (const candidate of getPythonCandidates()) {
+    try {
+      const args = candidate === 'py' ? ['-3', '--version'] : ['--version'];
+      await execFileAsync(candidate, args, {
+        cwd: process.cwd(),
+        maxBuffer: 1024 * 1024,
+      });
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('未找到可用的 Python 解释器。请先安装 Python，或在项目内创建 .venv-ocr 环境。');
+}
 
 function inferFileType(file: File) {
   const name = file.name.toLowerCase();
@@ -28,9 +63,10 @@ async function runPyMuPdf(buffer: Buffer, mode: 'text' | 'images') {
   await fs.writeFile(pdfPath, buffer);
 
   try {
-    const pythonBin = path.join(process.cwd(), '.venv-ocr', 'bin', 'python');
+    const pythonBin = await resolvePythonCommand();
     const scriptPath = path.join(process.cwd(), 'scripts', 'pdf_to_images.py');
-    const { stdout, stderr } = await execFileAsync(pythonBin, [scriptPath, pdfPath, '3', mode], {
+    const args = pythonBin === 'py' ? ['-3', scriptPath, pdfPath, '3', mode] : [scriptPath, pdfPath, '3', mode];
+    const { stdout, stderr } = await execFileAsync(pythonBin, args, {
       cwd: process.cwd(),
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -217,19 +253,28 @@ export async function POST(req: Request) {
     }
 
     const resume = parseResumeText(text);
+    const knowledgeContext = buildKnowledgeContext(resume);
     const customConfig: CustomApiConfig = {
       baseURL: typeof apiBaseUrl === 'string' ? apiBaseUrl : undefined,
       apiKey: typeof apiKey === 'string' ? apiKey : undefined,
       modelId: typeof modelId === 'string' ? modelId : undefined,
     };
 
-    const analysis = await analyzeResumeByModel(model as SupportedModel, resume, customConfig);
+    const analysis = await analyzeResumeByModel(model as SupportedModel, resume, customConfig, knowledgeContext);
     console.log('[analyze] llm:done', analysis.meta || null);
+    const strategyOptions = buildStrategyOptions(analysis.result, knowledgeContext, resume);
+
+    const result = {
+      ...analysis.result,
+      knowledgeGuidance: knowledgeContext.guidance,
+      strategyOptions,
+    };
 
     return NextResponse.json({
-      result: analysis.result,
+      result,
       analysisMeta: analysis.meta,
       parsedResume: resume,
+      knowledgeContext,
       model,
       usedCustomApi: Boolean(customConfig.baseURL || customConfig.apiKey || customConfig.modelId),
     });
