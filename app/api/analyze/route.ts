@@ -6,7 +6,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { parseResumeText } from '@/lib/resume-parser';
-import { analyzeResumeByModel, CustomApiConfig, SupportedModel } from '@/lib/llm-analysis';
+import { analyzeResumeByModel, type CustomApiConfig, type SupportedModel } from '@/lib/llm-analysis';
 import { buildKnowledgeContext } from '@/lib/knowledge-engine';
 import { buildStrategyOptions } from '@/lib/strategy-options';
 
@@ -15,8 +15,17 @@ export const runtime = 'nodejs';
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 
+function createRuntimeRequire(): NodeJS.Require {
+  return eval('require');
+}
+
+function loadPdfParseCtor(): any {
+  return createRuntimeRequire()('pdf-parse').PDFParse;
+}
+
 function getPythonCandidates() {
   const cwd = process.cwd();
+
   return process.platform === 'win32'
     ? [
         path.join(cwd, '.venv-ocr', 'Scripts', 'python.exe'),
@@ -45,7 +54,7 @@ async function resolvePythonCommand() {
     }
   }
 
-  throw new Error('未找到可用的 Python 解释器。请先安装 Python，或在项目内创建 .venv-ocr 环境。');
+  throw new Error('未找到可用的 Python 解释器。');
 }
 
 function inferFileType(file: File) {
@@ -71,7 +80,7 @@ async function runPyMuPdf(buffer: Buffer, mode: 'text' | 'images') {
       maxBuffer: 20 * 1024 * 1024,
     });
 
-    if (stderr && stderr.trim()) {
+    if (stderr?.trim()) {
       console.warn('[pdf_to_images stderr]', stderr);
     }
 
@@ -86,9 +95,49 @@ async function extractPdfTextWithPyMuPDF(buffer: Buffer) {
   return typeof payload?.text === 'string' ? payload.text : '';
 }
 
-async function renderPdfPagesToImages(buffer: Buffer) {
+async function renderPdfPagesToImagesWithPyMuPDF(buffer: Buffer) {
   const payload = await runPyMuPdf(buffer, 'images');
   return Array.isArray(payload?.images) ? payload.images : [];
+}
+
+async function extractPdfTextWithNode(buffer: Buffer) {
+  const PDFParse = loadPdfParseCtor();
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const payload = await parser.getText({ first: 3 });
+    return typeof payload?.text === 'string' ? payload.text : '';
+  } finally {
+    await parser.destroy();
+  }
+}
+
+async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
+  const PDFParse = loadPdfParseCtor();
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const payload = await parser.getScreenshot({
+      first: 3,
+      scale: 1.8,
+      imageDataUrl: false,
+      imageBuffer: true,
+    });
+
+    if (!Array.isArray(payload?.pages)) {
+      return [];
+    }
+
+    return payload.pages
+      .map((page: { data?: Uint8Array | Buffer | ArrayBuffer }) => {
+        const data = page?.data;
+        if (!data) return null;
+        return Buffer.from(data as ArrayBufferLike).toString('base64');
+      })
+      .filter((item: string | null): item is string => Boolean(item));
+  } finally {
+    await parser.destroy();
+  }
 }
 
 function buildOcrErrorMessage(message: string) {
@@ -101,17 +150,17 @@ function buildOcrErrorMessage(message: string) {
 async function ocrPdfWithQwen(images: string[]) {
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) {
-    throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 PDF OCR 兜底');
+    throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 PDF OCR 兜底。');
   }
 
   if (!images.length) {
-    throw new Error('OCR 兜底失败：PDF 页面图片为空');
+    throw new Error('OCR 兜底失败：PDF 页面图片为空。');
   }
 
   const visionContent = [
     {
       type: 'text',
-      text: '请对这些简历 PDF 页面做 OCR，只输出提取出的纯文本内容。不要总结，不要解释，不要加 markdown。按页面顺序输出。',
+      text: '请对这些简历 PDF 页面做 OCR，只输出提取出的纯文本内容。不要总结，不要解释，不要加 markdown，按页面顺序输出。',
     },
     ...images.map((img) => ({
       type: 'image_url',
@@ -156,51 +205,75 @@ async function ocrPdfWithQwen(images: string[]) {
   return '';
 }
 
+async function extractTextFromPdf(buffer: Buffer, file: File) {
+  console.log('[analyze] extract:start', {
+    name: file.name,
+    type: file.type,
+    size: buffer.length,
+    inferredType: 'pdf',
+  });
+
+  try {
+    const nodeText = await extractPdfTextWithNode(buffer);
+    console.log('[analyze] extract:pdf-parse-text', { length: nodeText.trim().length });
+    if (nodeText.trim().length >= 30) {
+      return nodeText;
+    }
+  } catch (error) {
+    console.error('[analyze] extract:pdf-parse-text:error', error);
+  }
+
+  try {
+    const localText = await extractPdfTextWithPyMuPDF(buffer);
+    console.log('[analyze] extract:pymupdf-text', { length: localText.trim().length });
+    if (localText.trim().length >= 30) {
+      return localText;
+    }
+  } catch (error) {
+    console.error('[analyze] extract:pymupdf-text:error', error);
+  }
+
+  let images: string[] = [];
+
+  try {
+    images = await renderPdfPagesToImagesWithNode(buffer);
+    console.log('[analyze] extract:pdf-parse-images', { count: images.length });
+  } catch (error) {
+    console.error('[analyze] extract:pdf-parse-images:error', error);
+  }
+
+  if (!images.length) {
+    try {
+      images = await renderPdfPagesToImagesWithPyMuPDF(buffer);
+      console.log('[analyze] extract:pymupdf-images', { count: images.length });
+    } catch (error) {
+      console.error('[analyze] extract:pymupdf-images:error', error);
+      throw new Error('PDF 页面渲染失败：服务端无法将 PDF 转为 OCR 图片。请改传 DOCX / TXT，或改传带文本层的 PDF。');
+    }
+  }
+
+  try {
+    const ocrText = await ocrPdfWithQwen(images);
+    console.log('[analyze] extract:ocr', { length: ocrText.trim().length });
+    if (ocrText.trim().length >= 30) {
+      return ocrText;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '未知错误';
+    console.error('[analyze] extract:ocr:error', error);
+    throw new Error(`这份 PDF 的文本层提取失败，OCR 兜底也失败了：${message}`);
+  }
+
+  throw new Error('这份 PDF 提取出的文本仍然过少。建议改传 DOCX / TXT，或上传一份可复制文字的 PDF。');
+}
+
 async function extractTextFromFile(file: File) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const fileType = inferFileType(file);
 
   if (fileType === 'pdf') {
-    console.log('[analyze] extract:start', {
-      name: file.name,
-      type: file.type,
-      size: buffer.length,
-      inferredType: fileType,
-    });
-
-    try {
-      const localText = await extractPdfTextWithPyMuPDF(buffer);
-      console.log('[analyze] extract:pymupdf-text', { length: localText.trim().length });
-      if (localText.trim().length >= 30) {
-        return localText;
-      }
-    } catch (error) {
-      console.error('[analyze] extract:pymupdf-text:error', error);
-    }
-
-    let images: string[] = [];
-    try {
-      images = await renderPdfPagesToImages(buffer);
-      console.log('[analyze] extract:pymupdf-images', { count: images.length });
-    } catch (error) {
-      console.error('[analyze] extract:pymupdf-images:error', error);
-      throw new Error('PDF 页面渲染失败：无法将 PDF 转为图片进行 OCR。请改传 DOCX / TXT，或检查本地 PyMuPDF / OCR 依赖。');
-    }
-
-    try {
-      const ocrText = await ocrPdfWithQwen(images);
-      console.log('[analyze] extract:ocr', { length: ocrText.trim().length });
-      if (ocrText.trim().length >= 30) {
-        return ocrText;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '未知错误';
-      console.error('[analyze] extract:ocr:error', err);
-      throw new Error(`这份 PDF 文本层提取失败，OCR 兜底也失败了：${message}`);
-    }
-
-    throw new Error('这份 PDF 提取出的文本仍然过少。建议改传 DOCX / TXT，或换一份可复制文字的 PDF。');
+    return extractTextFromPdf(buffer, file);
   }
 
   if (fileType === 'docx') {
@@ -213,7 +286,7 @@ async function extractTextFromFile(file: File) {
   }
 
   if (fileType === 'doc') {
-    throw new Error('暂不支持 .doc（老版 Word）。请另存为 .docx 或 PDF 后再上传。');
+    throw new Error('暂不支持 .doc 老版 Word，请另存为 .docx 或 PDF 后再上传。');
   }
 
   throw new Error('仅支持 PDF / DOCX / TXT 文件。');
@@ -239,17 +312,18 @@ export async function POST(req: Request) {
     });
 
     if (!file || !(file instanceof File)) {
-      return NextResponse.json({ error: '未检测到上传文件' }, { status: 400 });
+      return NextResponse.json({ error: '未检测到上传文件。' }, { status: 400 });
     }
 
     if (!model || typeof model !== 'string' || !SUPPORTED_MODELS.includes(model as SupportedModel)) {
-      return NextResponse.json({ error: '请先选择分析模型' }, { status: 400 });
+      return NextResponse.json({ error: '请先选择分析模型。' }, { status: 400 });
     }
 
     const text = await extractTextFromFile(file);
-    console.log('[analyze] extract:done', { length: text?.trim().length || 0 });
+    console.log('[analyze] extract:done', { length: text.trim().length });
+
     if (!text || text.trim().length < 30) {
-      return NextResponse.json({ error: '简历文本提取失败，内容过少或为空' }, { status: 400 });
+      return NextResponse.json({ error: '简历文本提取失败，内容过少或为空。' }, { status: 400 });
     }
 
     const resume = parseResumeText(text);
@@ -262,8 +336,8 @@ export async function POST(req: Request) {
 
     const analysis = await analyzeResumeByModel(model as SupportedModel, resume, customConfig, knowledgeContext);
     console.log('[analyze] llm:done', analysis.meta || null);
-    const strategyOptions = buildStrategyOptions(analysis.result, knowledgeContext, resume);
 
+    const strategyOptions = buildStrategyOptions(analysis.result, knowledgeContext, resume);
     const result = {
       ...analysis.result,
       knowledgeGuidance: knowledgeContext.guidance,
