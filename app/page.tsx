@@ -25,6 +25,7 @@ interface AnalysisMeta {
 }
 
 type ModelOption = 'qwen3.5-flash' | 'custom';
+const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/webpack.mjs');
@@ -95,19 +96,26 @@ export default function Home() {
 
     try {
       const formData = new FormData();
-      formData.append('file', selectedFile);
       formData.append('model', backendModel);
 
       const isPdf = selectedFile.type.includes('pdf') || selectedFile.name.toLowerCase().endsWith('.pdf');
+      let extractedPdfText = '';
+
       if (isPdf) {
         try {
-          const extractedText = await extractPdfTextInBrowser(selectedFile);
-          if (extractedText.trim().length >= 30) {
-            formData.append('extractedText', extractedText);
+          extractedPdfText = await extractPdfTextInBrowser(selectedFile);
+          if (extractedPdfText.trim().length >= 30) {
+            formData.append('extractedText', extractedPdfText.trim());
+            formData.append('fileName', selectedFile.name);
+            formData.append('fileType', selectedFile.type || 'application/pdf');
           }
         } catch (browserPdfError) {
           console.warn('[client] pdf text extraction failed', browserPdfError);
         }
+      }
+
+      if (!isPdf || extractedPdfText.trim().length < 30) {
+        formData.append('file', selectedFile);
       }
 
       if (isCustomModel) {
@@ -168,6 +176,10 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0b0d12] text-white">
+      <div className="fixed right-4 top-4 z-50 rounded-2xl border border-amber-400/35 bg-[#16120a]/90 px-4 py-2 text-xs text-amber-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300/75">Frontend Version</div>
+        <div className="mt-1 font-mono text-sm font-semibold text-amber-50">{FRONTEND_VERSION}</div>
+      </div>
       <section className="px-6 pb-16 pt-16 sm:pt-20">
         <div className="mx-auto max-w-6xl">
           <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/85">

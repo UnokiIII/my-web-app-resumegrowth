@@ -294,24 +294,39 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get('file');
+    const fileName = formData.get('fileName');
+    const fileType = formData.get('fileType');
     const model = formData.get('model');
     const apiBaseUrl = formData.get('apiBaseUrl');
     const apiKey = formData.get('apiKey');
     const modelId = formData.get('modelId');
     const extractedText = formData.get('extractedText');
+    const hasInlineExtractedText = typeof extractedText === 'string' && extractedText.trim().length >= 30;
+    const effectiveFileName =
+      typeof fileName === 'string' && fileName.trim()
+        ? fileName.trim()
+        : file instanceof File
+          ? file.name
+          : undefined;
+    const effectiveFileType =
+      typeof fileType === 'string' && fileType.trim()
+        ? fileType.trim()
+        : file instanceof File
+          ? file.type
+          : undefined;
 
     console.log('[analyze] request:start', {
       model,
       apiBaseUrl: typeof apiBaseUrl === 'string' ? apiBaseUrl : undefined,
       hasApiKey: Boolean(typeof apiKey === 'string' && apiKey),
       modelId: typeof modelId === 'string' ? modelId : undefined,
-      hasExtractedText: Boolean(typeof extractedText === 'string' && extractedText.trim()),
-      fileName: file instanceof File ? file.name : undefined,
-      fileType: file instanceof File ? file.type : undefined,
+      hasExtractedText: hasInlineExtractedText,
+      fileName: effectiveFileName,
+      fileType: effectiveFileType,
       fileSize: file instanceof File ? file.size : undefined,
     });
 
-    if (!file || !(file instanceof File)) {
+    if (!hasInlineExtractedText && (!file || !(file instanceof File))) {
       return NextResponse.json({ error: '未检测到上传文件。' }, { status: 400 });
     }
 
@@ -319,10 +334,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '请先选择分析模型。' }, { status: 400 });
     }
 
-    const text =
-      typeof extractedText === 'string' && extractedText.trim().length >= 30
-        ? extractedText.trim()
-        : await extractTextFromFile(file);
+    const text = hasInlineExtractedText ? extractedText.trim() : await extractTextFromFile(file as File);
     console.log('[analyze] extract:done', { length: text.trim().length });
 
     if (!text || text.trim().length < 30) {

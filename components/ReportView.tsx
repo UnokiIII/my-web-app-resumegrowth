@@ -35,6 +35,8 @@ interface ReportViewProps {
   onReset: () => void;
 }
 
+const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
@@ -327,6 +329,10 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
 
   return (
     <main className="min-h-screen bg-[#0b0d12] text-white">
+      <div className="fixed right-4 top-4 z-[60] rounded-2xl border border-amber-400/35 bg-[#16120a]/90 px-4 py-2 text-xs text-amber-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur print:hidden">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300/75">Frontend Version</div>
+        <div className="mt-1 font-mono text-sm font-semibold text-amber-50">{FRONTEND_VERSION}</div>
+      </div>
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0b0d12]/95 px-6 py-4 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <button
