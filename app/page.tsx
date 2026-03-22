@@ -30,7 +30,10 @@ const ANALYZE_REQUEST_TIMEOUT_MS = 95_000;
 const PDF_EXTRACT_TIMEOUT_MS = 10_000;
 
 async function extractPdfTextInBrowser(file: File) {
-  const pdfjs = await import('pdfjs-dist/webpack.mjs');
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  }
   const bytes = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjs.getDocument({ data: bytes });
   const pdf = await loadingTask.promise;
