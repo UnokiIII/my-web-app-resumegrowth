@@ -27,6 +27,7 @@ interface AnalysisMeta {
 type ModelOption = 'qwen3.5-flash' | 'custom';
 const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
 const ANALYZE_REQUEST_TIMEOUT_MS = 95_000;
+const PDF_EXTRACT_TIMEOUT_MS = 10_000;
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/webpack.mjs');
@@ -57,6 +58,15 @@ async function extractPdfTextInBrowser(file: File) {
       pdf.destroy();
     }
   }
+}
+
+async function extractPdfTextInBrowserWithTimeout(file: File) {
+  return Promise.race([
+    extractPdfTextInBrowser(file),
+    new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error(`PDF 浏览器预提取超时，已等待 ${Math.round(PDF_EXTRACT_TIMEOUT_MS / 1000)} 秒。`)), PDF_EXTRACT_TIMEOUT_MS)
+    ),
+  ]);
 }
 
 export default function Home() {
@@ -104,14 +114,14 @@ export default function Home() {
 
       if (isPdf) {
         try {
-          extractedPdfText = await extractPdfTextInBrowser(selectedFile);
+          extractedPdfText = await extractPdfTextInBrowserWithTimeout(selectedFile);
           if (extractedPdfText.trim().length >= 30) {
             formData.append('extractedText', extractedPdfText.trim());
             formData.append('fileName', selectedFile.name);
             formData.append('fileType', selectedFile.type || 'application/pdf');
           }
         } catch (browserPdfError) {
-          console.warn('[client] pdf text extraction failed', browserPdfError);
+          console.warn('[client] pdf text extraction skipped, fallback to file upload', browserPdfError);
         }
       }
 
