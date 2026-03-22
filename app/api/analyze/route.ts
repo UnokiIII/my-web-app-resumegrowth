@@ -298,12 +298,14 @@ export async function POST(req: Request) {
     const apiBaseUrl = formData.get('apiBaseUrl');
     const apiKey = formData.get('apiKey');
     const modelId = formData.get('modelId');
+    const extractedText = formData.get('extractedText');
 
     console.log('[analyze] request:start', {
       model,
       apiBaseUrl: typeof apiBaseUrl === 'string' ? apiBaseUrl : undefined,
       hasApiKey: Boolean(typeof apiKey === 'string' && apiKey),
       modelId: typeof modelId === 'string' ? modelId : undefined,
+      hasExtractedText: Boolean(typeof extractedText === 'string' && extractedText.trim()),
       fileName: file instanceof File ? file.name : undefined,
       fileType: file instanceof File ? file.type : undefined,
       fileSize: file instanceof File ? file.size : undefined,
@@ -317,7 +319,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '请先选择分析模型。' }, { status: 400 });
     }
 
-    const text = await extractTextFromFile(file);
+    const text =
+      typeof extractedText === 'string' && extractedText.trim().length >= 30
+        ? extractedText.trim()
+        : await extractTextFromFile(file);
     console.log('[analyze] extract:done', { length: text.trim().length });
 
     if (!text || text.trim().length < 30) {

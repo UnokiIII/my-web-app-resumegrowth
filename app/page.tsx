@@ -26,6 +26,37 @@ interface AnalysisMeta {
 
 type ModelOption = 'qwen3.5-flash' | 'custom';
 
+async function extractPdfTextInBrowser(file: File) {
+  const pdfjs = await import('pdfjs-dist/webpack.mjs');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const loadingTask = pdfjs.getDocument({ data: bytes });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pages = Math.min(pdf.numPages, 3);
+    const chunks: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item: any) => ('str' in item ? item.str : ''))
+        .join(' ')
+        .trim();
+
+      if (text) {
+        chunks.push(text);
+      }
+    }
+
+    return chunks.join('\n').trim();
+  } finally {
+    if (typeof pdf.destroy === 'function') {
+      pdf.destroy();
+    }
+  }
+}
+
 export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -66,6 +97,18 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('model', backendModel);
+
+      const isPdf = selectedFile.type.includes('pdf') || selectedFile.name.toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        try {
+          const extractedText = await extractPdfTextInBrowser(selectedFile);
+          if (extractedText.trim().length >= 30) {
+            formData.append('extractedText', extractedText);
+          }
+        } catch (browserPdfError) {
+          console.warn('[client] pdf text extraction failed', browserPdfError);
+        }
+      }
 
       if (isCustomModel) {
         formData.append('apiBaseUrl', apiBaseUrl.trim());
