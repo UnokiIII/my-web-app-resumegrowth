@@ -11,9 +11,11 @@ import { buildKnowledgeContext } from '@/lib/knowledge-engine';
 import { buildStrategyOptions } from '@/lib/strategy-options';
 
 export const runtime = 'nodejs';
+export const maxDuration = 90;
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
+const OCR_TIMEOUT_MS = 45_000;
 
 function getPythonCandidates() {
   const cwd = process.cwd();
@@ -160,9 +162,13 @@ async function ocrPdfWithQwen(images: string[]) {
   ];
 
   let resp: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+
   try {
     resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
@@ -174,8 +180,14 @@ async function ocrPdfWithQwen(images: string[]) {
       }),
     });
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`OCR 请求超时，已等待 ${Math.round(OCR_TIMEOUT_MS / 1000)} 秒。请稍后重试，或改传 DOCX / TXT。`);
+    }
+
     const message = error instanceof Error ? error.message : '未知网络错误';
     throw new Error(buildOcrErrorMessage(message));
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!resp.ok) {

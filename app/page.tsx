@@ -26,6 +26,7 @@ interface AnalysisMeta {
 
 type ModelOption = 'qwen3.5-flash' | 'custom';
 const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
+const ANALYZE_REQUEST_TIMEOUT_MS = 95_000;
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/webpack.mjs');
@@ -124,10 +125,24 @@ export default function Home() {
         formData.append('modelId', modelId.trim());
       }
 
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        body: formData,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), ANALYZE_REQUEST_TIMEOUT_MS);
+      let response: Response;
+
+      try {
+        response = await fetch('/api/analyze', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+      } catch (fetchError) {
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error(`分析超时，已等待 ${Math.round(ANALYZE_REQUEST_TIMEOUT_MS / 1000)} 秒。请重试，或优先上传 DOCX。`);
+        }
+        throw fetchError;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       const raw = await response.text();
       let payload: any = null;

@@ -31,6 +31,8 @@ const MODEL_LABEL: Record<SupportedModel, string> = {
   'gemini-3.1': 'Gemini 3.1',
 };
 
+const PROVIDER_TIMEOUT_MS = 75_000;
+
 class ProviderRequestError extends Error {
   status: number;
   rawText: string;
@@ -362,11 +364,22 @@ async function fetchJsonWithHandling(params: {
 }) {
   const { url, init, providerName, modelId, baseURL } = params;
   let resp: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+
   try {
-    resp = await fetch(url, init);
+    resp = await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        `外部模型请求超时：provider=${providerName}，modelId=${modelId}。已等待 ${Math.round(PROVIDER_TIMEOUT_MS / 1000)} 秒，请稍后重试。`
+      );
+    }
+
     const message = error instanceof Error ? error.message : '未知网络错误';
     throw new Error(`外部模型网络请求失败：provider=${providerName}，modelId=${modelId}，baseURL=${baseURL}。${message}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const text = await resp.text();
