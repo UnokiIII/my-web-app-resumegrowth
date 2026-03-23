@@ -203,25 +203,25 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0b0d12] text-white">
-      <div className="fixed right-4 top-4 z-50 rounded-2xl border border-amber-400/35 bg-[#16120a]/90 px-4 py-2 text-xs text-amber-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur">
+    <main className="min-h-screen overflow-x-hidden bg-[#0b0d12] text-white">
+      <div className="pointer-events-none fixed right-3 top-3 z-50 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-amber-400/35 bg-[#16120a]/90 px-3 py-2 text-[11px] text-amber-100 shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur sm:right-4 sm:top-4 sm:max-w-none sm:px-4 sm:text-xs">
         <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300/75">Frontend Version</div>
         <div className="mt-1 font-mono text-sm font-semibold text-amber-50">{FRONTEND_VERSION}</div>
       </div>
-      <section className="px-6 pb-16 pt-16 sm:pt-20">
+      <section className="px-4 pb-14 pt-24 sm:px-6 sm:pb-16 sm:pt-20">
         <div className="mx-auto max-w-6xl">
           <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/85">
             <Sparkles className="h-4 w-4" />
             一人企业简历分析引擎
           </div>
 
-          <h1 className="text-4xl font-semibold leading-[1.12] tracking-tight sm:text-5xl lg:text-6xl">
+          <h1 className="max-w-4xl text-3xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
             上传你的简历
             <br />
             获取你的一人企业成长方案
           </h1>
 
-          <p className="mt-6 max-w-2xl text-base text-white/70 sm:text-lg">
+          <p className="mt-5 max-w-2xl text-sm leading-7 text-white/70 sm:mt-6 sm:text-lg">
             基于你的经历与技能，AI 为你定制专属的商业化路径。
             <br className="hidden sm:block" />
             从优势资产盘点到 90 天执行清单，每一步都清晰可执行。
@@ -238,9 +238,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="px-6 pb-10">
+      <section className="px-4 pb-10 sm:px-6">
         <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7">
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4 sm:p-7">
             <div className="mb-4 text-sm font-medium text-white/90">第一步：选择模型</div>
 
             <div className="space-y-3">
@@ -274,7 +274,7 @@ export default function Home() {
             </div>
 
             {isCustomModel && (
-              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
                 <div>
                   <label className="mb-1.5 block text-xs text-white/60">API Base URL</label>
                   <input
@@ -315,7 +315,7 @@ export default function Home() {
             )}
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7">
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4 sm:p-7">
             <div className="mb-4 text-sm font-medium text-white/90">第二步：上传简历</div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -324,7 +324,7 @@ export default function Home() {
                 type="file"
                 accept=".pdf,.doc,.docx,.txt"
                 onChange={handleFileChange}
-                className="block w-full cursor-pointer rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-black"
+                className="block w-full min-w-0 cursor-pointer rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none file:mr-3 file:max-w-[7.5rem] file:overflow-hidden file:text-ellipsis file:whitespace-nowrap file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-black"
               />
             </div>
 
@@ -335,11 +335,11 @@ export default function Home() {
               )}
             >
               {selectedFile ? (
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <FileText className="h-5 w-5 text-emerald-300" />
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-medium text-emerald-200">已上传完成</div>
-                    <div className="text-xs text-emerald-200/70">{selectedFile.name}</div>
+                    <div className="break-all text-xs text-emerald-200/70">{selectedFile.name}</div>
                   </div>
                 </div>
               ) : (
@@ -379,7 +379,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="px-6 py-16 sm:py-20">
+      <section className="px-4 py-14 sm:px-6 sm:py-20">
         <div className="mx-auto max-w-6xl">
           <h2 className="mb-3 text-2xl font-semibold tracking-tight sm:text-3xl">你会拿到什么</h2>
           <p className="mb-10 text-white/60">简洁但完整的增长建议，从“我是谁”到“下一步做什么”。</p>

@@ -20,10 +20,21 @@ body {
   color: #fafafa;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   font-family: var(--font-geist-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
 }
 
 /* Custom scrollbar */
@@ -491,6 +502,55 @@ body {
   .report-risk-card,
   .report-check-card {
     padding: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .report-screen-only section,
+  main > section {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  .report-screen-only h1,
+  main > section h1 {
+    font-size: 2rem !important;
+    line-height: 1.08 !important;
+  }
+
+  .report-screen-only p,
+  .report-screen-only h2,
+  .report-screen-only h3,
+  .report-screen-only span,
+  .report-screen-only div,
+  main > section p,
+  main > section h2,
+  main > section h3,
+  main > section span,
+  main > section div {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .report-screen-only .recharts-responsive-container {
+    min-height: 220px !important;
+  }
+
+  .report-screen-only .h-72 {
+    height: 15rem !important;
+  }
+
+  .report-screen-only .report-phase-card,
+  .report-screen-only .report-economics-card,
+  .report-screen-only .report-risk-card,
+  .report-screen-only .report-check-card {
+    padding: 18px;
+    border-radius: 24px;
   }
 }
 
