@@ -24,7 +24,7 @@ async function main() {
     if (mode === 'images') {
       const payload = await parser.getScreenshot({
         first: maxPages,
-        scale: 1.8,
+        scale: 1.0,
         imageDataUrl: false,
         imageBuffer: true,
       });

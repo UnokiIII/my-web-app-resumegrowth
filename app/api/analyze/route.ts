@@ -11,11 +11,11 @@ import { buildKnowledgeContext } from '@/lib/knowledge-engine';
 import { buildStrategyOptions } from '@/lib/strategy-options';
 
 export const runtime = 'nodejs';
-export const maxDuration = 90;
+export const maxDuration = 120;
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
-const OCR_TIMEOUT_MS = 45_000;
+const OCR_TIMEOUT_MS = 75_000;
 
 function getPythonCandidates() {
   const cwd = process.cwd();
@@ -131,6 +131,28 @@ async function extractEmbeddedPdfImagesWithNode(buffer: Buffer) {
   return Array.isArray(payload?.images) ? payload.images : [];
 }
 
+function getImagePayloadSize(images: string[]) {
+  return images.reduce((total, image) => total + image.length, 0);
+}
+
+function pickBestPdfImages(renderedImages: string[], embeddedImages: string[]) {
+  if (renderedImages.length && embeddedImages.length) {
+    return getImagePayloadSize(embeddedImages) <= getImagePayloadSize(renderedImages)
+      ? { source: 'embedded', images: embeddedImages }
+      : { source: 'rendered', images: renderedImages };
+  }
+
+  if (embeddedImages.length) {
+    return { source: 'embedded', images: embeddedImages };
+  }
+
+  if (renderedImages.length) {
+    return { source: 'rendered', images: renderedImages };
+  }
+
+  return { source: 'none', images: [] as string[] };
+}
+
 function buildOcrErrorMessage(message: string) {
   if (/fetch failed/i.test(message)) {
     return 'OCR 网络请求失败，请稍后重试；如果持续失败，请检查 DASHSCOPE_API_KEY、QWEN_OCR_MODEL 或当前网络连通性。';
@@ -234,22 +256,38 @@ async function extractTextFromPdf(buffer: Buffer, file: File) {
     console.error('[analyze] extract:pymupdf-text:error', error);
   }
 
+  let renderedImages: string[] = [];
+  let embeddedImages: string[] = [];
   let images: string[] = [];
 
   try {
-    images = await renderPdfPagesToImagesWithNode(buffer);
-    console.log('[analyze] extract:pdf-parse-images', { count: images.length });
+    renderedImages = await renderPdfPagesToImagesWithNode(buffer);
+    console.log('[analyze] extract:pdf-parse-images', {
+      count: renderedImages.length,
+      payloadSize: getImagePayloadSize(renderedImages),
+    });
   } catch (error) {
     console.error('[analyze] extract:pdf-parse-images:error', error);
   }
 
-  if (!images.length) {
-    try {
-      images = await extractEmbeddedPdfImagesWithNode(buffer);
-      console.log('[analyze] extract:pdf-parse-embedded-images', { count: images.length });
-    } catch (error) {
-      console.error('[analyze] extract:pdf-parse-embedded-images:error', error);
-    }
+  try {
+    embeddedImages = await extractEmbeddedPdfImagesWithNode(buffer);
+    console.log('[analyze] extract:pdf-parse-embedded-images', {
+      count: embeddedImages.length,
+      payloadSize: getImagePayloadSize(embeddedImages),
+    });
+  } catch (error) {
+    console.error('[analyze] extract:pdf-parse-embedded-images:error', error);
+  }
+
+  const selectedImages = pickBestPdfImages(renderedImages, embeddedImages);
+  images = selectedImages.images;
+  if (images.length) {
+    console.log('[analyze] extract:image-source-selected', {
+      source: selectedImages.source,
+      count: images.length,
+      payloadSize: getImagePayloadSize(images),
+    });
   }
 
   if (!images.length) {
