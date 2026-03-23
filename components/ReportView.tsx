@@ -657,28 +657,34 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
             <SectionTitle icon={Calendar} title="成长路径" />
             <div className="space-y-5">
               {activeGrowthPath.map((phase, index) => (
-                <div key={`${phase.phase}-${index}`} className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7">
-                  <div className="mb-4 flex flex-wrap items-center gap-3">
-                    <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-white/15 bg-white/10 px-3 text-sm font-medium">
+                <article key={`${phase.phase}-${index}`} className="report-phase-card">
+                  <div className="mb-5 flex flex-wrap items-center gap-3">
+                    <span className="report-phase-index">
                       {index + 1}
                     </span>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/70">{phase.duration}</span>
-                    <h3 className="text-lg font-medium">{phase.phase}</h3>
+                    <span className="report-phase-duration">{phase.duration}</span>
+                    <h3 className="text-xl font-semibold tracking-tight text-white">{phase.phase}</h3>
                   </div>
-                  <p className="mb-4 leading-relaxed text-white/68">{phase.goal}</p>
-                  <ul className="mb-4 space-y-2">
+
+                  <div className="report-phase-goal">
+                    <span className="report-phase-label">本阶段目标</span>
+                    <p>{phase.goal}</p>
+                  </div>
+
+                  <ul className="report-phase-actions">
                     {phase.actions.map((action, itemIndex) => (
-                      <li key={itemIndex} className="flex items-start gap-2 text-sm leading-relaxed text-white/82">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
+                      <li key={itemIndex} className="report-phase-action">
+                        <span className="report-phase-action-dot" />
                         {action}
                       </li>
                     ))}
                   </ul>
-                  <div className="border-t border-white/10 pt-4 text-sm text-white/82">
-                    <span className="text-white/55">里程碑：</span>
-                    {phase.milestone}
+
+                  <div className="report-phase-milestone">
+                    <span className="report-phase-label">里程碑</span>
+                    <p>{phase.milestone}</p>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           </div>
@@ -689,19 +695,19 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
             <SectionTitle icon={DollarSign} title="收入模型" />
             <div className="grid gap-4 sm:grid-cols-3">
               {activeRevenueModel.map((model, index) => (
-                <div key={`${model.phase}-${index}`} className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                  <span className="mb-2 block text-xs text-white/55">{model.phase}</span>
-                  <h3 className="mb-2 text-lg font-medium">{model.product}</h3>
-                  <p className="mb-4 text-xl font-semibold text-white">{model.pricing}</p>
-                  <div className="space-y-2 text-sm leading-relaxed text-white/72">
-                    <p>
-                      <span className="text-white/50">目标客户：</span>
-                      {model.target}
-                    </p>
-                    <p>
-                      <span className="text-white/50">预期收入：</span>
-                      {model.expectedIncome}
-                    </p>
+                <div key={`${model.phase}-${index}`} className="report-economics-card">
+                  <span className="report-phase-label">{model.phase}</span>
+                  <h3 className="mt-3 text-lg font-semibold leading-snug text-white">{model.product}</h3>
+                  <p className="mt-4 text-3xl font-semibold tracking-tight text-white">{model.pricing}</p>
+                  <div className="mt-5 space-y-3 text-sm leading-relaxed">
+                    <div className="report-economics-row">
+                      <span>目标客户</span>
+                      <strong>{model.target}</strong>
+                    </div>
+                    <div className="report-economics-row">
+                      <span>预期收入</span>
+                      <strong>{model.expectedIncome}</strong>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -714,21 +720,23 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
             <SectionTitle icon={AlertTriangle} title="风险短板" />
             <div className="space-y-4">
               {activeRisks.map((risk, index) => (
-                <div key={`${risk.point}-${index}`} className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                <div key={`${risk.point}-${index}`} className="report-risk-card">
                   <div className="flex items-start gap-4">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-sm font-medium">
+                    <div className="report-risk-index">
                       {index + 1}
                     </div>
                     <div className="flex-1">
-                      <h3 className="mb-2 text-lg font-medium">{risk.point}</h3>
-                      <p className="mb-3 text-sm leading-relaxed text-white/65">
-                        <span className="text-white/45">预警信号：</span>
-                        {risk.warning}
-                      </p>
-                      <p className="text-sm leading-relaxed text-white/82">
-                        <span className="text-white/45">解决动作：</span>
-                        {risk.solution}
-                      </p>
+                      <h3 className="mb-3 text-lg font-semibold text-white">{risk.point}</h3>
+                      <div className="space-y-3">
+                        <div className="report-risk-block">
+                          <span className="report-phase-label">预警信号</span>
+                          <p>{risk.warning}</p>
+                        </div>
+                        <div className="report-risk-block">
+                          <span className="report-phase-label">解决动作</span>
+                          <p>{risk.solution}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -742,12 +750,15 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
             <SectionTitle icon={CheckSquare} title="90 天行动清单" />
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {activeChecklist.map((item, index) => (
-                <div key={`${item.week}-${index}`} className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                  <span className="mb-3 block text-xs text-white/55">{item.week}</span>
-                  <ul className="space-y-2">
+                <div key={`${item.week}-${index}`} className="report-check-card">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <span className="report-phase-label">{item.week}</span>
+                    <span className="report-check-count">{item.tasks.length} 项</span>
+                  </div>
+                  <ul className="space-y-3">
                     {item.tasks.map((task, taskIndex) => (
-                      <li key={taskIndex} className="flex items-start gap-2 text-sm leading-relaxed text-white/82">
-                        <span className="mt-1 h-4 w-4 shrink-0 rounded border border-white/20" />
+                      <li key={taskIndex} className="report-check-item">
+                        <span className="report-check-box" />
                         {task}
                       </li>
                     ))}
