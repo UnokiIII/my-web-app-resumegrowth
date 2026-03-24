@@ -1,4 +1,4 @@
-import type { AnalysisResult, AssetItem, ResumeData, StrategyOption } from './mock-data';
+import type { AnalysisResult, AssetItem, GrowthActionDetail, GrowthPathPhase, ResumeData, StrategyOption } from './mock-data';
 import {
   CASE_DEFINITIONS,
   FAQ_DEFINITIONS,
@@ -221,43 +221,268 @@ function buildFirstDealPlan(route: RouteDefinition, scene: ScoredScene, resume: 
   };
 }
 
+function pickTopSignal(resume: ResumeData) {
+  const achievement = resume.achievements.find((item) => item.metric || item.desc) || resume.achievements[0];
+  if (achievement?.metric) return achievement.metric;
+  if (achievement?.desc) return achievement.desc.slice(0, 18);
+  return '';
+}
+
+function pickPortfolioHint(sceneId: string, resume: ResumeData) {
+  const signal = pickTopSignal(resume);
+  if (sceneId === 'operations') {
+    return {
+      title: signal ? `整理过往 ${signal} 案例和提效结果做作品集` : '整理过往增长案例和提效结果做作品集',
+      howTo: '用 Notion、飞书文档或一页式 PDF 做 3 个案例卡：项目背景、你做了什么、结果数据、可复制的方法。每个案例只保留最强结果，不要写成长篇复盘。',
+      whereToFind: '优先从简历里挑有播放、转化、活动结果、私域增长、AI 提效的数据；没有完整数据就用“动作前后对比 + 截图”补证据。',
+      deliverable: '1 份可发给客户的作品集链接，至少包含 3 个案例卡和 1 段自我介绍。',
+    };
+  }
+
+  if (sceneId === 'content') {
+    return {
+      title: '整理研究、选题或内容转化案例做表达样本',
+      howTo: '每个样本都按“原始信息很乱 -> 你怎么重组 -> 输出成什么内容 -> 最终结果”来写，让客户看懂你不是会写字，而是会提炼和转化。',
+      whereToFind: '从做过的研究文档、脚本、选题库、竞品拆解、公众号或社媒内容里抽 3 个最能代表判断力的样本。',
+      deliverable: '1 份内容/研究作品集，能证明你有判断和转化能力，不只是会写文案。',
+    };
+  }
+
+  if (sceneId === 'technical') {
+    return {
+      title: '整理自动化、交付结果或测试提效案例做技术样本',
+      howTo: '每个案例用“问题 - 方案 - 节省了什么 - 最终结果”四段式来写，重点展示你如何把复杂问题变成可交付成果。',
+      whereToFind: '从脚本、自动化流程、测试提效、工具搭建、报表体系、数据处理等经历中挑 2-3 个最能证明业务价值的案例。',
+      deliverable: '1 份技术服务样本页，能让非技术客户也看懂你到底解决了什么。',
+    };
+  }
+
+  return {
+    title: `整理 ${resume.currentRole || '过往经历'} 的代表案例做样本`,
+    howTo: '用“背景 - 动作 - 结果 - 可复制方法”整理 2-3 个案例，优先保留能证明结果的截图、数据和客户反馈。',
+    whereToFind: '从你做过的项目、服务、活动、交付物和正反馈里，挑最能证明能力的内容。',
+    deliverable: '1 份可以发给潜在客户的案例样本页。',
+  };
+}
+
+function pickLeadSourceHint(sceneId: string, industry: string, routeName: string) {
+  if (sceneId === 'operations') {
+    return {
+      title: '锁定 20 家目标中小企业主做定向触达',
+      howTo: '优先挑“已经在做内容但做得不稳定”的商家，而不是完全没有需求的人。先列行业，再列账号，再列联系人，再逐个发触达信息。',
+      whereToFind: `从抖音、小红书、视频号、公众号、本地生活平台、企查查、行业社群里找 ${industry || '中小企业'} 老板或市场负责人；也可以先从熟人转介绍开始。`,
+      deliverable: '1 张 20 人潜在客户名单表，至少包含公司、联系人、平台链接、痛点判断和触达进度。',
+    };
+  }
+
+  if (sceneId === 'content') {
+    return {
+      title: '锁定愿意为研究、选题或内容转化付费的项目方',
+      howTo: '优先找已经有内容需求但表达质量不稳定的团队，不要泛泛去找所有品牌。先判断谁有持续更新需求，再去触达。',
+      whereToFind: `从 X/Twitter、公众号、知识星球、行业群、项目官网和社群里找 ${industry || '目标行业'} 的内容负责人或创始人。`,
+      deliverable: '1 张目标客户表，至少列出 20 个潜在客户和你判断他们可能购买的原因。',
+    };
+  }
+
+  if (sceneId === 'technical') {
+    return {
+      title: '锁定有明确提效需求的团队或项目方',
+      howTo: '不要一开始就找大公司，优先找“人少事多、流程重复、有人愿意快速试用”的团队。触达时直接说你能替他们省掉哪类重复工作。',
+      whereToFind: `从开发者社群、产品群、创业者社群、独立开发者社区、行业微信群和前同事网络里找 ${industry || '相关行业'} 的小团队。`,
+      deliverable: '1 张精准客户表，写清楚他们的问题、你能切入的动作和第一句触达话术。',
+    };
+  }
+
+  return {
+    title: `锁定愿意为 ${routeName} 付费的第一批客户`,
+    howTo: '先找最容易成交的人，不要一上来就全网海投。用熟人、老客户、前同事和已有渠道验证你的描述是否打得中需求。',
+    whereToFind: `优先从熟人网络、老合作方、行业社群和已有内容入口里找 ${industry || '目标行业'} 的客户。`,
+    deliverable: '1 张首批潜在客户名单和触达记录表。',
+  };
+}
+
+function pickOfferHint(route: RouteDefinition, sceneId: string) {
+  if (sceneId === 'operations') {
+    return {
+      title: '推出低价引流版服务包',
+      howTo: '先做一个低门槛版本，比如“单月 AI 内容规划”“7 天内容诊断”“短视频选题+脚本包”。只卖一个结果，不要把拍摄、剪辑、账号陪跑全塞进去。',
+      whereToFind: '先让熟人客户、试单客户或前 20 个触达对象试听你的描述，看他们愿不愿意为这个最小版本付款。',
+      deliverable: '1 页服务包说明：适合谁、交付什么、多久交付、价格多少、为什么值得买。',
+    };
+  }
+
+  if (sceneId === 'content') {
+    return {
+      title: '推出最小研究/内容产品',
+      howTo: '把服务包限制在一个非常具体的结果上，比如“1 次选题诊断”“1 份竞品研究卡”“1 周内容方向梳理”。不要一次卖长期内容顾问。',
+      whereToFind: '优先给已经愿意聊需求的客户发这份服务说明，再根据反馈缩小边界。',
+      deliverable: '1 个最小产品说明页和 1 条成交时可直接发送的标准话术。',
+    };
+  }
+
+  if (sceneId === 'technical') {
+    return {
+      title: '推出可试用的轻量服务包',
+      howTo: '把技术能力包成客户能理解的小结果，比如“自动化表单流程搭建”“周报自动生成”“测试流程诊断”。不要直接卖抽象技术能力。',
+      whereToFind: '优先对已经有明确痛点的客户试卖，观察他们对结果描述、交付周期和价格的反应。',
+      deliverable: '1 个轻量服务包描述页，重点写客户结果，而不是技术术语。',
+    };
+  }
+
+  return {
+    title: `推出 ${route.name} 的最小成交版本`,
+    howTo: '先卖一个边界清晰、价格清楚、交付时间短的小版本。先证明有人愿意买，再考虑扩服务范围。',
+    whereToFind: '先发给对你最有信任基础的人测试，再根据反馈修订。',
+    deliverable: '1 个可报价的最小服务包页面。',
+  };
+}
+
+function pickDeliveryHint(route: RouteDefinition, sceneId: string) {
+  if (sceneId === 'operations') {
+    return {
+      title: '把首单交付过程沉淀成固定模板',
+      howTo: '交付时同步记录每一步：沟通提纲、素材清单、内容框架、交付格式、复盘模板。你不是只完成项目，而是在积累下次更快成交和交付的素材。',
+      whereToFind: '从首单真实交付过程里倒推，不需要额外找资料。',
+      deliverable: '1 套首单交付 SOP，至少包含沟通清单、交付模板和复盘模板。',
+    };
+  }
+
+  if (sceneId === 'content') {
+    return {
+      title: '把研究/策划过程标准化',
+      howTo: '把你做研究、选题、梳理结构的方法写成固定模板，下次接新客户时只替换素材，不要全部重来。',
+      whereToFind: '从首单里提炼重复动作，比如资料搜集、角度判断、结构输出、交付说明。',
+      deliverable: '1 套研究/内容服务模板包。',
+    };
+  }
+
+  if (sceneId === 'technical') {
+    return {
+      title: '把技术交付过程写成可复用文档',
+      howTo: '把需求确认、数据准备、流程搭建、测试、交付、回访这几个步骤固化下来，减少下一单重新解释和重复劳动。',
+      whereToFind: '从首单交付过程里沉淀，重点记录客户最关心的非技术解释。',
+      deliverable: '1 套技术服务交付清单和说明文档。',
+    };
+  }
+
+  return {
+    title: '把首单变成可复制的交付流程',
+    howTo: '固定报价、沟通、交付和复盘动作，让下一次成交和交付都更省力。',
+    whereToFind: '从首单里提炼重复动作，逐步标准化。',
+    deliverable: '1 套可复用的服务交付模板。',
+  };
+}
+
+function pickStabilityHint(route: RouteDefinition, sceneId: string) {
+  if (sceneId === 'operations') {
+    return {
+      title: '从试单升级到月度或专项稳定合作',
+      howTo: '把首单结果复盘成“问题 - 动作 - 结果”案例，再顺势提出第二阶段合作，比如月度内容规划、代运营、专项增长支持。',
+      whereToFind: '先从首单客户、老客户和转介绍里升级，不要完全依赖新客户开发。',
+      deliverable: '1 套升级版服务包和 1 份可复用案例页。',
+    };
+  }
+
+  if (sceneId === 'content') {
+    return {
+      title: '把单次服务升级成持续研究或内容产品',
+      howTo: '把高频需求沉淀成月度报告、专题栏目、数据库、会员订阅或固定陪跑服务，让收入不只来自单次定制。',
+      whereToFind: '从重复问同类问题的客户和读者里判断哪些需求适合做成持续产品。',
+      deliverable: '1 个持续型产品雏形，比如月报、会员或固定服务计划。',
+    };
+  }
+
+  if (sceneId === 'technical') {
+    return {
+      title: '把服务升级成模板、工具或持续支持',
+      howTo: '观察首单里哪些动作重复出现，能模板化的模板化，能工具化的工具化，再决定是继续卖服务还是加一个轻量产品层。',
+      whereToFind: '优先从已交付客户的重复需求里找，不要脱离真实场景空想产品。',
+      deliverable: '1 份升级路线图：哪些继续服务，哪些抽成模板，哪些值得做成工具。',
+    };
+  }
+
+  return {
+    title: `把 ${route.name} 升级成更稳的收入结构`,
+    howTo: route.upgradePath,
+    whereToFind: '优先从复购、升级和转介绍里做稳定化，不要只靠不断找新客。',
+    deliverable: '1 个升级后的收入结构草图。',
+  };
+}
+
+function buildPhase(phase: string, duration: string, goal: string, actionDetails: GrowthActionDetail[], milestone: string): GrowthPathPhase {
+  return {
+    phase,
+    duration,
+    goal,
+    actions: actionDetails.map((item) => item.title),
+    actionDetails,
+    milestone,
+  };
+}
+
 function buildGrowthPath(route: RouteDefinition, scene: ScoredScene, resume: ResumeData): StrategyOption['growthPath'] {
-  const assetText = resume.skills.slice(0, 3).map((item) => item.name).join('、') || '现有能力';
+  const industry = resume.industry || scene.scene.name;
+
+  const verificationActions = [
+    pickPortfolioHint(scene.scene.id, resume),
+    pickLeadSourceHint(scene.scene.id, industry, route.name),
+    pickOfferHint(route, scene.scene.id),
+  ];
+
+  const deliveryActions = [
+    {
+      title: '固定沟通、报价和交付话术',
+      howTo: '把首轮沟通里最常被问到的问题整理成标准回答，把报价结构、交付清单和边界说明写成固定版本，避免每次临时发挥。',
+      whereToFind: '直接从你第一次成交前后的聊天记录、语音和会议纪要里提炼。',
+      deliverable: '1 份标准沟通话术 + 报价说明 + 交付清单。',
+    },
+    {
+      title: `围绕 ${scene.scene.name} 的强痛点先做试单或小单`,
+      howTo: '不要一开始就卖大单。先拿一个能在 7-14 天看到结果的小范围项目，目标是验证成交和交付，而不是一次赚最多。',
+      whereToFind: '优先从最容易信任你的人里试单，比如熟人网络、老同事、老客户或当前正在沟通的潜在客户。',
+      deliverable: '1 个已成交的小单或 1 轮有明确需求反馈的试单沟通记录。',
+    },
+    pickDeliveryHint(route, scene.scene.id),
+  ];
+
+  const stabilityActions = [
+    pickStabilityHint(route, scene.scene.id),
+    {
+      title: '筛掉低利润动作，保留高复购动作',
+      howTo: '回看首单和试单：哪些动作最耗时但客户不愿意多付钱，哪些动作客户最看重、最愿意复购。前者砍掉，后者保留并加强。',
+      whereToFind: '从交付复盘、客户反馈和报价拉扯最多的环节里判断。',
+      deliverable: '1 份保留/删减动作清单，明确哪些服务继续卖，哪些以后不接。',
+    },
+    {
+      title: '建立案例展示和转介绍入口',
+      howTo: '把最好的成交案例整理成一页式案例，固定放在作品集、朋友圈、公众号、个人主页或介绍页里，并在交付结束后主动索取推荐语和转介绍。',
+      whereToFind: '从已完成项目的结果、评价、截图、客户聊天记录里提取素材。',
+      deliverable: '1 个案例页 + 1 条主动索要推荐语/转介绍的话术。',
+    },
+  ];
 
   return [
-    {
-      phase: '验证期',
-      duration: '第 1-2 周',
-      goal: `把 ${route.name} 做成一个能快速报价的最小版本，验证第一单是否成立。`,
-      actions: [
-        `围绕 ${assetText} 整理 2-3 个最能证明能力的案例或结果片段。`,
-        `把 ${route.name} 的交付边界、周期、价格和适用客户写成一页方案。`,
-        `优先联系最容易成交的熟人网络或已有流量入口，做第一轮真实沟通。`,
-      ],
-      milestone: `拿到一轮明确反馈，确认 ${route.name} 是否能成为主切口。`,
-    },
-    {
-      phase: '成交期',
-      duration: '第 3-6 周',
-      goal: `跑通 ${route.name} 的首单交付，并沉淀出可重复动作。`,
-      actions: [
-        '把沟通脚本、报价话术和交付清单固定下来，减少每次从零开始。',
-        `围绕 ${scene.scene.name} 里最强的一个痛点，先卖小单或试单。`,
-        '交付完成后立刻收集结果、评价和可复用样本，补强下一次成交。',
-      ],
-      milestone: '形成第一个可对外展示的成交样本与服务版本。',
-    },
-    {
-      phase: '升级期',
-      duration: '第 2-3 个月',
-      goal: `把 ${route.name} 从一次性交付升级为更稳定的收入模型。`,
-      actions: [
-        route.upgradePath,
-        '根据复盘决定保留哪些高利润动作，哪些动作模板化或工具化。',
-        '建立转介绍、案例展示和内容分发机制，让获客不只依赖临时沟通。',
-      ],
-      milestone: '形成更稳定的复购、升级或转介绍路径。',
-    },
+    buildPhase(
+      '验证期',
+      '第 1-2 周',
+      `先把 ${route.name} 做成能快速解释、快速报价、快速试卖的最小版本。`,
+      verificationActions,
+      `拿到第一轮真实反馈，确认 ${route.name} 是否是你当前最短的变现路径。`
+    ),
+    buildPhase(
+      '交付期',
+      '第 3-6 周',
+      `跑通 ${route.name} 的首单交付，并把“会做”变成“可复用”。`,
+      deliveryActions,
+      '形成第一套对外可展示的成交样本、交付模板和沟通话术。'
+    ),
+    buildPhase(
+      '稳定期',
+      '第 2-3 个月',
+      `把 ${route.name} 从单次成交升级成更稳的复购、升级或转介绍收入。`,
+      stabilityActions,
+      '形成更稳定的服务版本和升级路径，不再每个月都从零找单。'
+    ),
   ];
 }
 
@@ -618,7 +843,7 @@ export function buildStrategyOptions(
                 .filter(Boolean) as NonNullable<StrategyOption['knowledgeGuidance']>['recommendedRoutes'],
             }
           : buildKnowledgeGuidance(candidate, scene, knowledgeContext),
-      growthPath: optionId === 'primary' ? result.growthPath : buildGrowthPath(candidate.route, scene, resume),
+      growthPath: buildGrowthPath(candidate.route, scene, resume),
       revenueModel: optionId === 'primary' ? result.revenueModel : buildRevenueModel(candidate.route, scene),
       risks: optionId === 'primary' ? result.risks : buildRisks(candidate.route, scene),
       checklist: optionId === 'primary' ? result.checklist : buildChecklist(candidate.route),

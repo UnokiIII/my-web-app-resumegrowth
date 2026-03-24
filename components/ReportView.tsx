@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -10,10 +10,13 @@ import {
   CheckSquare,
   DollarSign,
   Download,
+  Lock,
   Sparkles,
   Star,
   Target,
   TrendingUp,
+  Unlock,
+  X,
 } from 'lucide-react';
 import { PolarAngleAxis, PolarGrid, Radar as RechartsRadar, RadarChart, ResponsiveContainer } from 'recharts';
 import type { AnalysisResult, StrategyOption } from '@/lib/mock-data';
@@ -36,6 +39,9 @@ interface ReportViewProps {
 }
 
 const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
+const PAYWALL_PRICE_LABEL = '1 元';
+const WECHAT_QR_SRC = '/wechat-pay-qr.jpg';
+const WECHAT_ADD_FRIEND_QR_SRC = '/wechat-add-friend-qr.png';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -237,7 +243,20 @@ function PrintStrategySection(props: { option: StrategyOption }) {
                   {phase.phase} · {phase.duration}
                 </strong>
                 <p>{phase.goal}</p>
-                <p>{phase.actions.join('；')}</p>
+                {phase.actionDetails?.length ? (
+                  <div className="print-mini-list">
+                    {phase.actionDetails.map((action) => (
+                      <div key={`${option.id}-${phase.phase}-${action.title}`} className="print-mini-item">
+                        <strong>{action.title}</strong>
+                        <p>怎么做：{action.howTo}</p>
+                        <p>去哪里找：{action.whereToFind || '按当前阶段的真实交付过程补充。'}</p>
+                        <p>产出物：{action.deliverable}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>{phase.actions.join('；')}</p>
+                )}
                 <p>里程碑：{phase.milestone}</p>
               </div>
             ))}
@@ -294,6 +313,15 @@ function PrintStrategySection(props: { option: StrategyOption }) {
 export default function ReportView({ result, analysisMeta, reportFileName, onReset }: ReportViewProps) {
   const strategyOptions = result.strategyOptions?.length ? result.strategyOptions : buildFallbackStrategyOptions(result);
   const [activeStrategyId, setActiveStrategyId] = useState<StrategyOption['id']>(strategyOptions[0]?.id || 'primary');
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [orderId, setOrderId] = useState('');
+  const [qrLoadFailed, setQrLoadFailed] = useState(false);
+  const [friendQrLoadFailed, setFriendQrLoadFailed] = useState(false);
+  const [unlockCode, setUnlockCode] = useState('');
+  const [unlockFeedback, setUnlockFeedback] = useState<string | null>(null);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [isRedeemingCode, setIsRedeemingCode] = useState(false);
   const activeStrategy = strategyOptions.find((item) => item.id === activeStrategyId) || strategyOptions[0];
   const actualModelLabel = analysisMeta?.resolvedModelId || analysisMeta?.requestedModelId || 'qwen3.5-flash';
   const modelSwitchLabel =
@@ -317,8 +345,103 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
     fullMark: 100,
   }));
 
+  useEffect(() => {
+    if (!reportFileName || !activeStrategy) return;
+    const compactName = reportFileName.replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5]+/g, '').slice(0, 8) || 'report';
+    const routeCode = activeStrategy.routeSelection.mainRoute.replace(/[^\w\u4e00-\u9fa5]+/g, '').slice(0, 6) || 'unlock';
+    setOrderId(`RG-${compactName}-${routeCode}`);
+  }, [reportFileName, activeStrategy]);
+
+  useEffect(() => {
+    setIsUnlocked(false);
+  }, [reportFileName, activeStrategyId]);
+
+  useEffect(() => {
+    if (!showUnlockModal || !orderId) return;
+
+    let cancelled = false;
+
+    const ensureOrder = async () => {
+      setIsCreatingOrder(true);
+
+      try {
+        const response = await fetch('/api/paywall/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, reportFileName }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || '初始化解锁订单失败，请稍后重试。');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUnlockFeedback(error instanceof Error ? error.message : '初始化解锁订单失败，请稍后重试。');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCreatingOrder(false);
+        }
+      }
+    };
+
+    void ensureOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showUnlockModal, orderId, reportFileName]);
+
+  const closeUnlockModal = () => {
+    setUnlockFeedback(null);
+    setShowUnlockModal(false);
+  };
+
+  const unlockCurrentReport = (source: 'unlock-code') => {
+    setIsUnlocked(true);
+    setUnlockFeedback(
+      '解锁码验证成功，当前报告已解锁。请尽快导出并保存 PDF。'
+    );
+    setShowUnlockModal(false);
+  };
+
+  const redeemUnlockCode = async () => {
+    if (!unlockCode.trim()) {
+      setUnlockFeedback('请输入解锁码。');
+      return;
+    }
+
+    setIsRedeemingCode(true);
+    setUnlockFeedback(null);
+
+    try {
+      const response = await fetch('/api/paywall/redeem-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: unlockCode.trim(), orderId, reportFileName }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || '解锁码验证失败，请稍后重试。');
+      }
+
+      unlockCurrentReport('unlock-code');
+      setUnlockCode('');
+    } catch (error) {
+      setUnlockFeedback(error instanceof Error ? error.message : '解锁码验证失败，请稍后重试。');
+    } finally {
+      setIsRedeemingCode(false);
+    }
+  };
+
   const handleExportPdf = () => {
     if (typeof window === 'undefined') return;
+    if (!isUnlocked) {
+      setShowUnlockModal(true);
+      return;
+    }
     const previousTitle = document.title;
     document.title = '一人企业成长方案-完整方案';
     window.print();
@@ -352,8 +475,8 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
             onClick={handleExportPdf}
             className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-medium text-black transition-all hover:bg-white/90 sm:px-4"
           >
-            <Download className="h-4 w-4" />
-            导出 PDF
+            {isUnlocked ? <Download className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {isUnlocked ? '导出 PDF' : '解锁后导出 PDF'}
           </button>
         </div>
       </header>
@@ -672,12 +795,63 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
                   </div>
 
                   <ul className="report-phase-actions">
-                    {phase.actions.map((action, itemIndex) => (
-                      <li key={itemIndex} className="report-phase-action">
-                        <span className="report-phase-action-dot" />
-                        {action}
-                      </li>
-                    ))}
+                    {phase.actionDetails?.length
+                      ? phase.actionDetails.map((action, itemIndex) => (
+                          <li key={`${phase.phase}-${action.title}-${itemIndex}`} className="report-phase-action !items-start">
+                            <span className="report-phase-action-dot mt-2" />
+                            <div className="w-full rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                              <div className="text-base font-medium text-white">{action.title}</div>
+                              <div className="mt-4 space-y-3 text-sm leading-7 text-white/75">
+                                <div>
+                                  <span className="mr-2 inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium tracking-[0.02em] text-white/60">
+                                    怎么做
+                                  </span>
+                                  {action.howTo}
+                                </div>
+                                <div>
+                                  <span className="mr-2 inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium tracking-[0.02em] text-white/60">
+                                    去哪找
+                                  </span>
+                                  {isUnlocked ? (
+                                    action.whereToFind || '按当前阶段的真实交付过程补充。'
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowUnlockModal(true)}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-sm text-white/72 transition-all hover:bg-white/[0.08]"
+                                    >
+                                      <Lock className="h-4 w-4 text-amber-200" />
+                                      {PAYWALL_PRICE_LABEL} 解锁后查看客户来源与名单线索
+                                    </button>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="mr-2 inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium tracking-[0.02em] text-white/60">
+                                    产出物
+                                  </span>
+                                  {isUnlocked ? (
+                                    action.deliverable
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowUnlockModal(true)}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-sm text-white/72 transition-all hover:bg-white/[0.08]"
+                                    >
+                                      <Lock className="h-4 w-4 text-amber-200" />
+                                      {PAYWALL_PRICE_LABEL} 解锁后查看交付清单与产出物
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        ))
+                      : phase.actions.map((action, itemIndex) => (
+                          <li key={itemIndex} className="report-phase-action">
+                            <span className="report-phase-action-dot" />
+                            {action}
+                          </li>
+                        ))}
                   </ul>
 
                   <div className="report-phase-milestone">
@@ -769,6 +943,130 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
           </div>
         </motion.section>
 
+        {showUnlockModal && (
+          <div
+            className="fixed inset-0 z-[80] overflow-y-auto bg-black/75 px-4 py-4 backdrop-blur-sm print:hidden sm:px-6 sm:py-6"
+            onClick={closeUnlockModal}
+          >
+            <div
+              className="mx-auto w-full max-w-xl rounded-[28px] border border-white/10 bg-[#11151d] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:p-7"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-5 flex items-start justify-between gap-4 rounded-t-[28px] border-b border-white/10 bg-[#11151d] px-5 py-4 sm:-mx-7 sm:-mt-7 sm:px-7 sm:py-5">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-200">
+                    <Lock className="h-3.5 w-3.5" />
+                    完整执行版
+                  </div>
+                  <h3 className="mt-3 text-2xl font-semibold tracking-tight text-white">{PAYWALL_PRICE_LABEL} 解锁执行细节</h3>
+                  <p className="mt-2 text-sm leading-7 text-white/68">
+                    免费部分保留方向判断和“怎么做”。支付后，你通过微信领取一次性解锁码，再回到当前页面解锁“去哪找”“产出物”和 PDF 导出。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeUnlockModal}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/65 transition-all hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="text-xs uppercase tracking-[0.16em] text-white/40">订单号</div>
+                <div className="mt-2 font-mono text-base text-white">{orderId || (isCreatingOrder ? '正在生成订单号...' : '准备中...')}</div>
+                <div className="mt-2 text-sm leading-6 text-white/58">付款后添加微信，并把这个订单号发给我。我会在后台页复制这笔订单对应的一次性解锁码，再手动发给你。</div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="mb-3 text-sm font-medium text-white">解锁方式</div>
+                <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/62">
+                  当前先采用人工发码方式，确保每一份报告都能准确对应到付款用户，减少错发、漏发和解锁失败。
+                </div>
+                <div className="space-y-3 text-sm leading-7 text-white/68">
+                  <div>1. 扫收款码支付 1 元。</div>
+                  <div>2. 扫“添加微信好友”二维码，加我微信并发送订单号。</div>
+                  <div>3. 我会手动返回这笔订单对应的一次性解锁码。</div>
+                  <div>4. 你回到当前页面输入解锁码，解锁完整执行版报告。</div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="mb-4 text-sm font-medium text-white">二维码区</div>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="mb-3 text-sm font-medium text-white">微信收款码</div>
+                    {!qrLoadFailed ? (
+                      <img
+                        src={WECHAT_QR_SRC}
+                        alt="微信收款码"
+                        className="mx-auto w-full max-w-[220px] rounded-2xl border border-white/10 bg-white object-cover"
+                        onError={() => setQrLoadFailed(true)}
+                      />
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-8 text-sm leading-7 text-white/58">
+                        未检测到收款码图片。请把图片放到：
+                        <br />
+                        <span className="font-mono text-white/78">public/wechat-pay-qr.jpg</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="mb-3 text-sm font-medium text-white">添加微信好友</div>
+                    {!friendQrLoadFailed ? (
+                      <img
+                        src={WECHAT_ADD_FRIEND_QR_SRC}
+                        alt="添加微信好友二维码"
+                        className="mx-auto w-full max-w-[220px] rounded-2xl border border-white/10 bg-white object-cover"
+                        onError={() => setFriendQrLoadFailed(true)}
+                      />
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-8 text-sm leading-7 text-white/58">
+                        未检测到加好友二维码。请把图片放到：
+                        <br />
+                        <span className="font-mono text-white/78">public/wechat-add-friend-qr.png</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 text-sm font-medium text-white">输入解锁码</div>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={unlockCode}
+                    onChange={(event) => setUnlockCode(event.target.value)}
+                    placeholder="输入你收到的一次性解锁码"
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/28 focus:border-white/20 focus:bg-white/[0.06]"
+                  />
+                  <button
+                    type="button"
+                    onClick={redeemUnlockCode}
+                    disabled={isRedeemingCode}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Unlock className="h-4 w-4" />
+                    {isRedeemingCode ? '正在验证解锁码...' : '验证解锁码并解锁'}
+                  </button>
+                </div>
+                <div className="mt-3 rounded-2xl border border-amber-400/15 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100/90">
+                  解锁码为一次性使用，输入成功后立即失效。
+                  <br />
+                  请确认当前设备和页面无误后再使用。
+                  <br />
+                  解锁后请尽快导出并保存 PDF。
+                </div>
+              </div>
+
+              {unlockFeedback && <div className="mt-4 text-sm leading-6 text-amber-100/85">{unlockFeedback}</div>}
+
+            </div>
+          </div>
+        )}
+
         <motion.div variants={itemVariants} className="px-6 pb-16 pt-8 text-center print:hidden">
           <button
             onClick={onReset}
@@ -824,3 +1122,4 @@ export default function ReportView({ result, analysisMeta, reportFileName, onRes
     </main>
   );
 }
+

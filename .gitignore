@@ -5,6 +5,8 @@ node_modules
 .env.*.local
 .vercel
 .codex-runtime
+tmp/
+data/
 tmp_*.json
 tmp_*.txt
 tsconfig.tsbuildinfo

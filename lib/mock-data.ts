@@ -18,6 +18,22 @@ export interface AssetItem {
   strategyReason?: string;
 }
 
+export interface GrowthActionDetail {
+  title: string;
+  howTo: string;
+  whereToFind?: string;
+  deliverable: string;
+}
+
+export interface GrowthPathPhase {
+  phase: string;
+  duration: string;
+  goal: string;
+  actions: string[];
+  actionDetails?: GrowthActionDetail[];
+  milestone: string;
+}
+
 export interface StrategyOption {
   id: 'primary' | 'alternativeA' | 'alternativeB';
   label: string;
@@ -78,13 +94,7 @@ export interface StrategyOption {
       answer: string;
     }[];
   };
-  growthPath: {
-    phase: string;
-    duration: string;
-    goal: string;
-    actions: string[];
-    milestone: string;
-  }[];
+  growthPath: GrowthPathPhase[];
   revenueModel: {
     phase: string;
     product: string;
@@ -110,13 +120,7 @@ export interface AnalysisResult {
     alternativeA: string;
     alternativeB: string;
   };
-  growthPath: {
-    phase: string;
-    duration: string;
-    goal: string;
-    actions: string[];
-    milestone: string;
-  }[];
+  growthPath: GrowthPathPhase[];
   revenueModel: {
     phase: string;
     product: string;
