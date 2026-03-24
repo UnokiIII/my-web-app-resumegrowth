@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: '缺少订单号，无法初始化解锁订单。' }, { status: 400 });
     }
 
-    const record = ensureUnlockOrderRecord({
+    const record = await ensureUnlockOrderRecord({
       orderId,
       reportFileName: reportFileName || '未命名报告',
     });

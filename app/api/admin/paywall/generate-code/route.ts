@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const record = generateOrderUnlockCode({
+    const record = await generateOrderUnlockCode({
       orderId,
       reportFileName: reportFileName || '未命名报告',
     });
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       record,
-      message: '已生成新的“一次性解锁码”。用户输入成功后会立即失效。',
+      message: '已生成新的一次性解锁码。用户输入成功后会立即失效。',
     });
   } catch (error) {
     return NextResponse.json(

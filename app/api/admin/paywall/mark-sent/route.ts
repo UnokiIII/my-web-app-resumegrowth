@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: '缺少回执编号。' }, { status: 400 });
   }
 
-  const existing = getPaymentProofRecordByReceipt(receiptId);
+  const existing = await getPaymentProofRecordByReceipt(receiptId);
   if (!existing) {
     return NextResponse.json({ ok: false, error: '没有找到对应回执。' }, { status: 404 });
   }
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const record = markPaymentProofSent(receiptId);
+    const record = await markPaymentProofSent(receiptId);
     if (!record) {
       return NextResponse.json({ ok: false, error: '没有找到对应回执。' }, { status: 404 });
     }

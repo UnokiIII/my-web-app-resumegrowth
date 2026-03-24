@@ -3,26 +3,10 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, FileText, KeyRound, Lock, QrCode, Search, ShieldCheck } from 'lucide-react';
 import PaywallAdminActions from '@/components/admin/paywall-admin-actions';
 import PaywallGenerateCodeForm from '@/components/admin/paywall-generate-code-form';
-import { getPaymentProofRecords, getProofDbPath, getProofRootPath, migrateJsonProofsToDb } from '@/lib/paywall-proof-store';
+import { getPaymentProofRecords, getProofDbPath, getProofRootPath, migrateJsonProofsToDb, type PaymentProofRecord } from '@/lib/paywall-proof-store';
 import { getPaywallAdminCookieName, isValidAdminSessionCookie } from '@/lib/paywall';
 
 export const dynamic = 'force-dynamic';
-
-interface AdminPaymentProofRecord {
-  receiptId: string;
-  orderId: string;
-  reportFileName: string;
-  payerNote: string;
-  payerContact: string;
-  originalFileName: string;
-  savedFileName: string;
-  imagePath: string;
-  transferRef: string | null;
-  unlockCode: string;
-  uploadedAt: string;
-  redeemedAt: string | null;
-  sentAt: string | null;
-}
 
 function LoginCard(props: { error?: string }) {
   return (
@@ -95,12 +79,12 @@ export default async function PaywallAdminPage(props: {
     return <LoginCard error={error} />;
   }
 
-  let allRecords: AdminPaymentProofRecord[] = [];
+  let allRecords: PaymentProofRecord[] = [];
   let storageError: string | null = null;
 
   try {
     await migrateJsonProofsToDb();
-    allRecords = getPaymentProofRecords() as AdminPaymentProofRecord[];
+    allRecords = await getPaymentProofRecords();
   } catch (error) {
     storageError = error instanceof Error ? error.message : '后台存储初始化失败，请稍后重试。';
   }
@@ -130,7 +114,7 @@ export default async function PaywallAdminPage(props: {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">一次性解锁码后台</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-white/60">
-              这里主要做三件事：按订单号生成一次性解锁码、复制后手动发给用户、确认这笔解锁码是否已经兑换。
+              这页只做三件事：按订单号生成一次性解锁码、复制后手动发给用户、确认这笔解锁码是否已经兑换。
             </p>
           </div>
 
@@ -151,7 +135,7 @@ export default async function PaywallAdminPage(props: {
               存储异常
             </div>
             <div className="text-sm leading-7 text-rose-50/90">
-              后台页已经打开，但订单存储初始化失败，所以暂时无法读取或生成解锁码。
+              后台页面已经打开，但订单存储初始化失败，所以暂时无法读取或生成解锁码。
               <br />
               原因：{storageError}
             </div>
@@ -317,7 +301,7 @@ export default async function PaywallAdminPage(props: {
                           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-10 text-sm leading-7 text-white/50">
                             当前这笔订单没有站内上传的付款截图。
                             <br />
-                            这不影响你直接生成解锁码，并通过微信手动发送给用户。
+                            这不影响你直接生成解锁码，并通过微信手动发给用户。
                           </div>
                         )}
                       </div>
@@ -325,7 +309,7 @@ export default async function PaywallAdminPage(props: {
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-6 text-white/45">
                         原始图片：{record.originalFileName || '未登记'}
                         <br />
-                        本地文件：{record.imagePath || '未上传'}
+                        存储路径：{record.imagePath || '未上传'}
                         <br />
                         创建时间：{record.uploadedAt}
                       </div>
