@@ -28,7 +28,10 @@ export async function POST(request: Request) {
       adminPagePath: '/admin/paywall',
       message: '订单已创建。付款后添加微信并发送订单号，我会在后台为这笔订单生成一次性解锁码，再手动发给你。',
     });
-  } catch {
-    return NextResponse.json({ ok: false, error: '初始化解锁订单失败，请稍后重试。' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : '初始化解锁订单失败，请稍后重试。' },
+      { status: 500 }
+    );
   }
 }

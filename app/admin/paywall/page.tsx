@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import type { ReactNode } from 'react';
-import { FileText, KeyRound, Lock, QrCode, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, FileText, KeyRound, Lock, QrCode, Search, ShieldCheck } from 'lucide-react';
 import PaywallAdminActions from '@/components/admin/paywall-admin-actions';
 import PaywallGenerateCodeForm from '@/components/admin/paywall-generate-code-form';
 import { getPaymentProofRecords, getProofDbPath, getProofRootPath, migrateJsonProofsToDb } from '@/lib/paywall-proof-store';
@@ -83,7 +83,9 @@ function StatusBadge(props: { children: ReactNode; tone: 'default' | 'amber' | '
   return <div className={`rounded-full border px-3 py-1.5 text-sm ${toneClass}`}>{props.children}</div>;
 }
 
-export default async function PaywallAdminPage(props: { searchParams?: Promise<{ error?: string }> | { error?: string } }) {
+export default async function PaywallAdminPage(props: {
+  searchParams?: Promise<{ error?: string; q?: string }> | { error?: string; q?: string };
+}) {
   const cookieStore = await cookies();
   const adminCookie = cookieStore.get(getPaywallAdminCookieName())?.value;
   const searchParams = props.searchParams ? await props.searchParams : undefined;
@@ -93,11 +95,29 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
     return <LoginCard error={error} />;
   }
 
-  await migrateJsonProofsToDb();
-  const records = getPaymentProofRecords() as AdminPaymentProofRecord[];
-  const pendingGenerateCount = records.filter((item) => !item.unlockCode?.trim()).length;
-  const pendingSendCount = records.filter((item) => item.unlockCode?.trim() && !item.sentAt).length;
-  const redeemedCount = records.filter((item) => item.redeemedAt).length;
+  let allRecords: AdminPaymentProofRecord[] = [];
+  let storageError: string | null = null;
+
+  try {
+    await migrateJsonProofsToDb();
+    allRecords = getPaymentProofRecords() as AdminPaymentProofRecord[];
+  } catch (error) {
+    storageError = error instanceof Error ? error.message : '后台存储初始化失败，请稍后重试。';
+  }
+
+  const rawQuery = typeof searchParams?.q === 'string' ? searchParams.q.trim() : '';
+  const keyword = rawQuery.toLowerCase();
+  const records = keyword
+    ? allRecords.filter((item) =>
+        [item.orderId, item.receiptId, item.reportFileName, item.transferRef]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword))
+      )
+    : allRecords;
+
+  const pendingGenerateCount = allRecords.filter((item) => !item.unlockCode?.trim()).length;
+  const pendingSendCount = allRecords.filter((item) => item.unlockCode?.trim() && !item.sentAt).length;
+  const redeemedCount = allRecords.filter((item) => item.redeemedAt).length;
 
   return (
     <main className="min-h-screen bg-[#0b0d12] px-4 py-10 text-white sm:px-6">
@@ -110,7 +130,7 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">一次性解锁码后台</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-white/60">
-              这页只做三件事：按订单号生成一次性解锁码、复制后手动发给用户、确认这笔码是否已经被兑换。
+              这里主要做三件事：按订单号生成一次性解锁码、复制后手动发给用户、确认这笔解锁码是否已经兑换。
             </p>
           </div>
 
@@ -124,10 +144,24 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
           </div>
         </div>
 
+        {storageError ? (
+          <div className="mb-6 rounded-[28px] border border-rose-400/20 bg-rose-400/10 p-5 sm:p-6">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1.5 text-xs text-rose-100">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              存储异常
+            </div>
+            <div className="text-sm leading-7 text-rose-50/90">
+              后台页已经打开，但订单存储初始化失败，所以暂时无法读取或生成解锁码。
+              <br />
+              原因：{storageError}
+            </div>
+          </div>
+        ) : null}
+
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
             <div className="text-xs uppercase tracking-[0.18em] text-white/40">订单总数</div>
-            <div className="mt-3 text-3xl font-semibold text-white">{records.length}</div>
+            <div className="mt-3 text-3xl font-semibold text-white">{allRecords.length}</div>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
             <div className="text-xs uppercase tracking-[0.18em] text-white/40">未生成解锁码</div>
@@ -147,10 +181,48 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
           <PaywallGenerateCodeForm />
         </div>
 
+        <div className="mb-6 rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70">
+            <Search className="h-3.5 w-3.5" />
+            订单号搜索
+          </div>
+
+          <form action="/admin/paywall" method="get" className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
+            <input
+              type="text"
+              name="q"
+              defaultValue={rawQuery}
+              placeholder="输入订单号、回执编号、报告名或转账单号"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/25 focus:border-white/20 focus:bg-white/[0.06]"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90"
+            >
+              <Search className="h-4 w-4" />
+              搜索
+            </button>
+            <a
+              href="/admin/paywall"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-white/75 transition hover:bg-white/10 hover:text-white"
+            >
+              清空
+            </a>
+          </form>
+
+          <div className="mt-4 text-sm text-white/55">
+            {rawQuery
+              ? `当前关键字：${rawQuery}，共匹配到 ${records.length} 条订单记录。`
+              : `当前共 ${allRecords.length} 条订单记录。`}
+          </div>
+        </div>
+
         <div className="space-y-4">
           {records.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-12 text-center text-white/55">
-              还没有订单记录。先在前台打开一次解锁弹窗，系统会为当前报告创建订单号。
+              {rawQuery
+                ? '没有找到匹配的订单记录，请换个关键字再试。'
+                : '还没有订单记录。先在前台打开一次解锁弹窗，系统会先为当前报告创建订单号。'}
             </div>
           ) : (
             records.map((record) => {
@@ -176,7 +248,7 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
                             <FileText className="h-3.5 w-3.5" />
                             关联报告
                           </div>
-                          <div className="text-sm leading-7 text-white/80">{record.reportFileName || '未记录'}</div>
+                          <div className="text-sm leading-7 text-white/80">{record.reportFileName || '未登记'}</div>
                         </div>
 
                         <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -196,12 +268,12 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
                           <>
                             <div className="font-mono text-xl font-semibold text-amber-100">{record.unlockCode}</div>
                             <div className="mt-2 text-sm leading-6 text-white/55">
-                              这个码只对应当前订单。用户输入成功后会立即永久失效，请提醒对方在当前设备确认无误后再使用，并尽快导出 PDF。
+                              这个码只对应当前订单。用户输入成功后会立刻永久失效，请提醒对方在当前设备确认无误后再使用，并尽快导出 PDF。
                             </div>
                           </>
                         ) : (
                           <div className="text-sm leading-6 text-white/55">
-                            当前还没有生成解锁码。你可以直接点击下面的按钮生成一次性解锁码。
+                            当前还没有生成解锁码。你可以点击下面的按钮直接为这笔订单生成一次性解锁码。
                           </div>
                         )}
                         <div className="mt-4">
@@ -245,13 +317,13 @@ export default async function PaywallAdminPage(props: { searchParams?: Promise<{
                           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-10 text-sm leading-7 text-white/50">
                             当前这笔订单没有站内上传的付款截图。
                             <br />
-                            这不影响你直接生成解锁码并通过微信手动发送给用户。
+                            这不影响你直接生成解锁码，并通过微信手动发送给用户。
                           </div>
                         )}
                       </div>
 
                       <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-6 text-white/45">
-                        原始图片：{record.originalFileName || '未记录'}
+                        原始图片：{record.originalFileName || '未登记'}
                         <br />
                         本地文件：{record.imagePath || '未上传'}
                         <br />

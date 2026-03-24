@@ -27,14 +27,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: '请先生成一次性解锁码，再标记已发送。' }, { status: 409 });
   }
 
-  const record = markPaymentProofSent(receiptId);
-  if (!record) {
-    return NextResponse.json({ ok: false, error: '没有找到对应回执。' }, { status: 404 });
-  }
+  try {
+    const record = markPaymentProofSent(receiptId);
+    if (!record) {
+      return NextResponse.json({ ok: false, error: '没有找到对应回执。' }, { status: 404 });
+    }
 
-  return NextResponse.json({
-    ok: true,
-    sentAt: record.sentAt,
-    message: '已标记为手动发送。',
-  });
+    return NextResponse.json({
+      ok: true,
+      sentAt: record.sentAt,
+      message: '已标记为手动发送。',
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : '标记发送失败，请稍后重试。' },
+      { status: 500 }
+    );
+  }
 }

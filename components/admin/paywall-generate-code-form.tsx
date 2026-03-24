@@ -71,7 +71,7 @@ export default function PaywallGenerateCodeForm() {
             type="text"
             value={orderId}
             onChange={(event) => setOrderId(event.target.value)}
-            placeholder="例如：RG-吴亿豪1-标准化服务"
+            placeholder="例如：RG-吴亿豪-标准化服务"
             className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/25 focus:border-white/20 focus:bg-white/[0.06]"
           />
         </div>

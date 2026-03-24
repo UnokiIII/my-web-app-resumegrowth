@@ -17,6 +17,8 @@ function buildRedirectUrl(request: Request, error?: string) {
 
 export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') || '';
+  const requestUrl = new URL(request.url);
+  const isSecureRequest = requestUrl.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
   let password = '';
 
   if (contentType.includes('application/json')) {
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
     response.cookies.set(getPaywallAdminCookieName(), getPaywallAdminCookieValue(), {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isSecureRequest,
       path: '/',
       maxAge: 60 * 60 * 12,
     });
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
   response.cookies.set(getPaywallAdminCookieName(), getPaywallAdminCookieValue(), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureRequest,
     path: '/',
     maxAge: 60 * 60 * 12,
   });

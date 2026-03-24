@@ -12,6 +12,7 @@ import {
   setUnlockCodeForOrder,
   upsertPaymentProof,
 } from './paywall-db';
+import { getPaywallProofRootDir } from './paywall-storage';
 
 function safeBaseName(input: string) {
   return input.replace(/[^\w\u4e00-\u9fa5-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'proof';
@@ -27,7 +28,7 @@ function buildUnlockCode() {
   return `RG-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
-const proofRoot = path.join(process.cwd(), 'tmp', 'payment-proofs');
+const proofRoot = getPaywallProofRootDir();
 
 export async function ensureProofRoot() {
   await mkdir(proofRoot, { recursive: true });

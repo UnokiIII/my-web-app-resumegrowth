@@ -19,18 +19,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: '请先输入订单号。' }, { status: 400 });
   }
 
-  const record = generateOrderUnlockCode({
-    orderId,
-    reportFileName: reportFileName || '未命名报告',
-  });
+  try {
+    const record = generateOrderUnlockCode({
+      orderId,
+      reportFileName: reportFileName || '未命名报告',
+    });
 
-  if (!record) {
-    return NextResponse.json({ ok: false, error: '生成一次性解锁码失败，请稍后重试。' }, { status: 500 });
+    if (!record) {
+      return NextResponse.json({ ok: false, error: '生成一次性解锁码失败，请稍后重试。' }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      record,
+      message: '已生成新的“一次性解锁码”。用户输入成功后会立即失效。',
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : '生成一次性解锁码失败，请稍后重试。' },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    ok: true,
-    record,
-    message: '已生成新的“一次性解锁码”。用户输入成功后会立即失效。',
-  });
 }

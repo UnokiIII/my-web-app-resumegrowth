@@ -51,7 +51,10 @@ export async function POST(request: Request) {
       source: 'unlock-code',
       message: '解锁码验证成功，当前报告已解锁。',
     });
-  } catch {
-    return NextResponse.json({ ok: false, error: '解锁码验证失败，请稍后重试。' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : '解锁码验证失败，请稍后重试。' },
+      { status: 500 }
+    );
   }
 }
