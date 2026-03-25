@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import mammoth from 'mammoth';
-import { PDFParse } from 'pdf-parse';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -17,6 +16,14 @@ export const maxDuration = 120;
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 const OCR_TIMEOUT_MS = 75_000;
+
+async function getPdfParseClass() {
+  const mod = await import('pdf-parse');
+  if (!('PDFParse' in mod) || typeof mod.PDFParse !== 'function') {
+    throw new Error('pdf-parse module did not expose PDFParse');
+  }
+  return mod.PDFParse;
+}
 
 function getPythonCandidates() {
   const cwd = process.cwd();
@@ -96,6 +103,7 @@ async function renderPdfPagesToImagesWithPyMuPDF(buffer: Buffer) {
 }
 
 async function extractPdfTextWithNode(buffer: Buffer) {
+  const PDFParse = await getPdfParseClass();
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
   try {
@@ -107,6 +115,7 @@ async function extractPdfTextWithNode(buffer: Buffer) {
 }
 
 async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
+  const PDFParse = await getPdfParseClass();
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
   try {
@@ -131,6 +140,7 @@ async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
 }
 
 async function extractEmbeddedPdfImagesWithNode(buffer: Buffer) {
+  const PDFParse = await getPdfParseClass();
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
   try {
