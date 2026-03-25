@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -84,28 +85,6 @@ async function runPyMuPdf(buffer: Buffer, mode: 'text' | 'images') {
   }
 }
 
-async function runNodePdfParse(buffer: Buffer, mode: 'text' | 'images' | 'embedded-images') {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'resume-node-pdf-'));
-  const pdfPath = path.join(tmpDir, 'resume.pdf');
-  await fs.writeFile(pdfPath, buffer);
-
-  try {
-    const scriptPath = path.join(process.cwd(), 'scripts', 'pdf_parse_runner.cjs');
-    const { stdout, stderr } = await execFileAsync(process.execPath, [scriptPath, pdfPath, '3', mode], {
-      cwd: process.cwd(),
-      maxBuffer: 50 * 1024 * 1024,
-    });
-
-    if (stderr?.trim()) {
-      console.warn('[pdf_parse_runner stderr]', stderr);
-    }
-
-    return JSON.parse(stdout);
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  }
-}
-
 async function extractPdfTextWithPyMuPDF(buffer: Buffer) {
   const payload = await runPyMuPdf(buffer, 'text');
   return typeof payload?.text === 'string' ? payload.text : '';
@@ -117,18 +96,63 @@ async function renderPdfPagesToImagesWithPyMuPDF(buffer: Buffer) {
 }
 
 async function extractPdfTextWithNode(buffer: Buffer) {
-  const payload = await runNodePdfParse(buffer, 'text');
-  return typeof payload?.text === 'string' ? payload.text : '';
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const payload = await parser.getText({ first: 3 });
+    return payload?.text || '';
+  } finally {
+    await parser.destroy();
+  }
 }
 
 async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
-  const payload = await runNodePdfParse(buffer, 'images');
-  return Array.isArray(payload?.images) ? payload.images : [];
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const payload = await parser.getScreenshot({
+      first: 3,
+      scale: 1.0,
+      imageDataUrl: false,
+      imageBuffer: true,
+    });
+
+    return Array.isArray(payload?.pages)
+      ? payload.pages
+          .map((page) => {
+            if (!page?.data) return null;
+            return Buffer.from(page.data).toString('base64');
+          })
+          .filter((image): image is string => Boolean(image))
+      : [];
+  } finally {
+    await parser.destroy();
+  }
 }
 
 async function extractEmbeddedPdfImagesWithNode(buffer: Buffer) {
-  const payload = await runNodePdfParse(buffer, 'embedded-images');
-  return Array.isArray(payload?.images) ? payload.images : [];
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const payload = await parser.getImage({
+      first: 3,
+      imageDataUrl: false,
+      imageBuffer: true,
+      imageThreshold: 50,
+    });
+
+    return Array.isArray(payload?.pages)
+      ? payload.pages
+          .flatMap((page) => page.images || [])
+          .map((image) => {
+            if (!image?.data) return null;
+            return Buffer.from(image.data).toString('base64');
+          })
+          .filter((img): img is string => Boolean(img))
+      : [];
+  } finally {
+    await parser.destroy();
+  }
 }
 
 function getImagePayloadSize(images: string[]) {
