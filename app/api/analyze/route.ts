@@ -17,11 +17,13 @@ const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 const OCR_TIMEOUT_MS = 45_000;
 const EXTERNAL_OCR_TIMEOUT_MS = 12_000;
+const BAIDU_OCR_TIMEOUT_MS = 12_000;
 const OCR_MAX_PAGES = 2;
 const OCR_MAX_IMAGES = 4;
 const OCR_MIN_PIXELS = 3_072;
 const OCR_MAX_PIXELS = 1_048_576;
 const OCR_EXTERNAL_MODEL_DEFAULTS = ['claude-opus-4-6', 'claude-opus-4-6-thinking', 'claude-sonnet-4-6'];
+let baiduOcrTokenCache: { token: string; expiresAt: number } | null = null;
 
 async function getPdfParseClass() {
   const mod = await import('pdf-parse');
@@ -643,6 +645,329 @@ async function ocrPdfWithQwen(images: string[]) {
   return '';
 }
 
+function normalizeOcrImageV2(image: string) {
+  if (image.startsWith('data:')) {
+    return image;
+  }
+
+  return `data:image/jpeg;base64,${image}`;
+}
+
+function stripDataUrlPrefixV2(image: string) {
+  const normalized = normalizeOcrImageV2(image);
+  const match = normalized.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+  return match?.[1] || normalized;
+}
+
+function buildOcrVisionContentV2(image: string) {
+  return [
+    {
+      type: 'text',
+      text: '请对这一张简历页面图片做 OCR，只输出提取出的纯文本内容，不要总结，不要解释，也不要添加 markdown。',
+    },
+    {
+      type: 'image_url',
+      image_url: {
+        url: normalizeOcrImageV2(image),
+      },
+    },
+  ];
+}
+
+async function ocrImageWithExternalCompatibleV2(image: string) {
+  const baseURL = process.env.OCR_EXTERNAL_BASE_URL;
+  const apiKey = process.env.OCR_EXTERNAL_API_KEY;
+
+  if (!baseURL || !apiKey) {
+    throw new Error('未配置 OCR_EXTERNAL_BASE_URL 或 OCR_EXTERNAL_API_KEY。');
+  }
+
+  let lastError: Error | null = null;
+
+  for (const baseCandidate of getExternalOcrBaseCandidates(baseURL)) {
+    const availableModels = await fetchExternalOcrModels(baseCandidate, apiKey);
+    const modelsToTry = availableModels.length
+      ? getExternalOcrModelCandidates().filter((modelId) => availableModels.includes(modelId))
+      : getExternalOcrModelCandidates();
+
+    for (const modelId of modelsToTry) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), EXTERNAL_OCR_TIMEOUT_MS);
+
+      try {
+        const resp = await fetch(`${trimTrailingSlash(baseCandidate)}/chat/completions`, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            temperature: 0,
+            messages: [{ role: 'user', content: buildOcrVisionContentV2(image) }],
+          }),
+        });
+
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error(`external:${modelId}:${resp.status}:${body.slice(0, 160)}`);
+        }
+
+        const data = await resp.json();
+        const text = extractOpenAiCompatibleText(data?.choices?.[0]?.message?.content).trim();
+
+        if (!looksLikeNonOcrAnswer(text)) {
+          return { text, modelId };
+        }
+
+        throw new Error(`external:${modelId}:non-ocr-answer`);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('外部 OCR 请求失败');
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  throw lastError || new Error('外部 OCR 当前不可用。');
+}
+
+async function getBaiduOcrAccessTokenV2() {
+  if (baiduOcrTokenCache && Date.now() < baiduOcrTokenCache.expiresAt) {
+    return baiduOcrTokenCache.token;
+  }
+
+  const apiKey = process.env.BAIDU_OCR_API_KEY;
+  const secretKey = process.env.BAIDU_OCR_SECRET_KEY;
+
+  if (!apiKey || !secretKey) {
+    throw new Error('未配置 BAIDU_OCR_API_KEY 或 BAIDU_OCR_SECRET_KEY。');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BAIDU_OCR_TIMEOUT_MS);
+
+  try {
+    const tokenUrl = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${encodeURIComponent(apiKey)}&client_secret=${encodeURIComponent(secretKey)}`;
+    const resp = await fetch(tokenUrl, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`百度 OCR token 获取失败：${resp.status} ${text.slice(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    const token = typeof data?.access_token === 'string' ? data.access_token.trim() : '';
+    const expiresIn = typeof data?.expires_in === 'number' ? data.expires_in : 0;
+
+    if (!token) {
+      throw new Error('百度 OCR token 响应缺少 access_token。');
+    }
+
+    baiduOcrTokenCache = {
+      token,
+      expiresAt: Date.now() + Math.max(expiresIn - 60, 60) * 1000,
+    };
+
+    return token;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function readBaiduOcrTextV2(data: any) {
+  const wordsResult = Array.isArray(data?.words_result) ? data.words_result : [];
+  return wordsResult
+    .map((item: any) => (typeof item?.words === 'string' ? item.words : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+async function ocrImageWithBaiduV2(image: string) {
+  const token = await getBaiduOcrAccessTokenV2();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BAIDU_OCR_TIMEOUT_MS);
+
+  try {
+    const body = new URLSearchParams();
+    body.set('image', stripDataUrlPrefixV2(image));
+
+    const resp = await fetch(`https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`百度 OCR 请求失败：${resp.status} ${text.slice(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    if (typeof data?.error_code === 'number') {
+      throw new Error(`百度 OCR 返回错误：${data.error_code} ${data?.error_msg || ''}`.trim());
+    }
+
+    return readBaiduOcrTextV2(data);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`百度 OCR 请求超时，已等待 ${Math.round(BAIDU_OCR_TIMEOUT_MS / 1000)} 秒。`);
+    }
+
+    throw error instanceof Error ? error : new Error('百度 OCR 请求失败');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function buildDashScopeOcrBodyV2(image: string) {
+  return {
+    model: process.env.QWEN_OCR_MODEL || 'qwen-vl-ocr-latest',
+    input: {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              image: normalizeOcrImageV2(image),
+              min_pixels: OCR_MIN_PIXELS,
+              max_pixels: OCR_MAX_PIXELS,
+              enable_rotate: true,
+            },
+          ],
+        },
+      ],
+    },
+    parameters: {
+      ocr_options: {
+        task: process.env.QWEN_OCR_TASK || 'text_recognition',
+      },
+    },
+  };
+}
+
+async function ocrImageWithDashScopeNativeV2(image: string) {
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 DashScope OCR。');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+
+  try {
+    const resp = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildDashScopeOcrBodyV2(image)),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`DashScope OCR 请求失败：${resp.status} ${text.slice(0, 300)}`);
+    }
+
+    const data = await resp.json();
+    return readDashScopeOcrText(data).trim();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`DashScope OCR 请求超时，已等待 ${Math.round(OCR_TIMEOUT_MS / 1000)} 秒。`);
+    }
+
+    const message = error instanceof Error ? error.message : '未知网络错误';
+    if (/fetch failed/i.test(message)) {
+      throw new Error('DashScope OCR 网络请求失败，请稍后重试。');
+    }
+    throw error instanceof Error ? error : new Error('DashScope OCR 请求失败');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function ocrPdfWithFallbackChain(images: string[]) {
+  if (!images.length) {
+    throw new Error('OCR 兜底失败：PDF 页面图片为空。');
+  }
+
+  const selectedImages = images.slice(0, OCR_MAX_IMAGES);
+  const chunks: string[] = [];
+  let lastError: Error | null = null;
+
+  for (let index = 0; index < selectedImages.length; index += 1) {
+    const image = selectedImages[index];
+
+    try {
+      let text = '';
+      let source = '';
+
+      try {
+        const externalResult = await ocrImageWithExternalCompatibleV2(image);
+        text = externalResult.text.trim();
+        source = `external:${externalResult.modelId}`;
+      } catch (externalError) {
+        const externalMessage = externalError instanceof Error ? externalError.message : 'external ocr failed';
+        console.warn('[analyze] extract:ocr-page:external-fallback', {
+          page: index + 1,
+          message: externalMessage,
+        });
+
+        try {
+          text = (await ocrImageWithBaiduV2(image)).trim();
+          source = 'baidu-ocr';
+        } catch (baiduError) {
+          const baiduMessage = baiduError instanceof Error ? baiduError.message : 'baidu ocr failed';
+          console.warn('[analyze] extract:ocr-page:baidu-fallback', {
+            page: index + 1,
+            message: baiduMessage,
+          });
+
+          text = (await ocrImageWithDashScopeNativeV2(image)).trim();
+          source = 'dashscope-native';
+        }
+      }
+
+      console.log('[analyze] extract:ocr-page', {
+        page: index + 1,
+        source,
+        length: text.length,
+      });
+
+      if (text) {
+        chunks.push(text);
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('OCR 请求失败');
+      console.error('[analyze] extract:ocr-page:error', {
+        page: index + 1,
+        message: lastError.message,
+      });
+    }
+  }
+
+  const mergedText = chunks.join('\n\n').trim();
+  if (mergedText) {
+    return mergedText;
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return '';
+}
+
 async function extractTextFromPdf(buffer: Buffer, file: File) {
   console.log('[analyze] extract:start', {
     name: file.name,
@@ -716,7 +1041,7 @@ async function extractTextFromPdf(buffer: Buffer, file: File) {
   }
 
   try {
-    const ocrText = await ocrPdfWithQwen(images);
+    const ocrText = await ocrPdfWithFallbackChain(images);
     console.log('[analyze] extract:ocr', { length: ocrText.trim().length });
     if (ocrText.trim().length >= 30) {
       return ocrText;
@@ -734,7 +1059,7 @@ async function extractTextFromPdfWithClientImages(buffer: Buffer, file: File, cl
   console.log('[analyze] extract:client-images', { count: clientImages.length, payloadSize: getImagePayloadSize(clientImages) });
 
   try {
-    const ocrText = await ocrPdfWithQwen(clientImages);
+    const ocrText = await ocrPdfWithFallbackChain(clientImages);
     console.log('[analyze] extract:client-ocr', { length: ocrText.trim().length });
     if (ocrText.trim().length >= 30) {
       return ocrText;
@@ -850,7 +1175,7 @@ export async function POST(req: Request) {
       text = await extractTextFromFile(file, clientPdfImages);
     } else if (clientPdfImages.length) {
       console.log('[analyze] request:client-images-only');
-      const ocrText = await ocrPdfWithQwen(clientPdfImages);
+      const ocrText = await ocrPdfWithFallbackChain(clientPdfImages);
       text = ocrText.trim();
     } else {
       text = await extractTextFromFile(file as File, clientPdfImages);
