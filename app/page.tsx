@@ -28,6 +28,7 @@ type ModelOption = 'qwen3.5-flash' | 'custom';
 const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
 const ANALYZE_REQUEST_TIMEOUT_MS = 95_000;
 const PDF_EXTRACT_TIMEOUT_MS = 10_000;
+const PDF_RENDER_SCALE = 1;
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -72,6 +73,51 @@ async function extractPdfTextInBrowserWithTimeout(file: File) {
   ]);
 }
 
+async function renderPdfPagesInBrowser(file: File) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const loadingTask = pdfjs.getDocument({ data: bytes });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pages = Math.min(pdf.numPages, 3);
+    const images: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        continue;
+      }
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      const base64 = dataUrl.split(',')[1];
+
+      if (base64) {
+        images.push(base64);
+      }
+    }
+
+    return images;
+  } finally {
+    if (typeof pdf.destroy === 'function') {
+      pdf.destroy();
+    }
+  }
+}
+
 export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -114,6 +160,7 @@ export default function Home() {
 
       const isPdf = selectedFile.type.includes('pdf') || selectedFile.name.toLowerCase().endsWith('.pdf');
       let extractedPdfText = '';
+      let renderedPdfImages: string[] = [];
 
       if (isPdf) {
         try {
@@ -125,6 +172,17 @@ export default function Home() {
           }
         } catch (browserPdfError) {
           console.warn('[client] pdf text extraction skipped, fallback to file upload', browserPdfError);
+        }
+
+        if (extractedPdfText.trim().length < 30) {
+          try {
+            renderedPdfImages = await renderPdfPagesInBrowser(selectedFile);
+            renderedPdfImages.forEach((image) => {
+              formData.append('pdfImages', image);
+            });
+          } catch (browserPdfRenderError) {
+            console.warn('[client] pdf image rendering skipped, fallback to server rendering', browserPdfRenderError);
+          }
         }
       }
 

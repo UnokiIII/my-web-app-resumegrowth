@@ -315,12 +315,31 @@ async function extractTextFromPdf(buffer: Buffer, file: File) {
   throw new Error('这份 PDF 提取出的文本仍然过少。建议改传 DOCX / TXT，或上传一份可复制文字的 PDF。');
 }
 
-async function extractTextFromFile(file: File) {
+async function extractTextFromPdfWithClientImages(buffer: Buffer, file: File, clientImages: string[]) {
+  console.log('[analyze] extract:client-images', { count: clientImages.length, payloadSize: getImagePayloadSize(clientImages) });
+
+  try {
+    const ocrText = await ocrPdfWithQwen(clientImages);
+    console.log('[analyze] extract:client-ocr', { length: ocrText.trim().length });
+    if (ocrText.trim().length >= 30) {
+      return ocrText;
+    }
+  } catch (error) {
+    console.error('[analyze] extract:client-ocr:error', error);
+  }
+
+  return extractTextFromPdf(buffer, file);
+}
+
+async function extractTextFromFile(file: File, clientPdfImages: string[] = []) {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const fileType = inferFileType(file);
 
   if (fileType === 'pdf') {
+    if (clientPdfImages.length) {
+      return extractTextFromPdfWithClientImages(buffer, file, clientPdfImages);
+    }
     return extractTextFromPdf(buffer, file);
   }
 
@@ -351,6 +370,9 @@ export async function POST(req: Request) {
     const apiKey = formData.get('apiKey');
     const modelId = formData.get('modelId');
     const extractedText = formData.get('extractedText');
+    const clientPdfImages = formData
+      .getAll('pdfImages')
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
     const hasInlineExtractedText = typeof extractedText === 'string' && extractedText.trim().length >= 30;
     const effectiveFileName =
       typeof fileName === 'string' && fileName.trim()
@@ -371,6 +393,7 @@ export async function POST(req: Request) {
       hasApiKey: Boolean(typeof apiKey === 'string' && apiKey),
       modelId: typeof modelId === 'string' ? modelId : undefined,
       hasExtractedText: hasInlineExtractedText,
+      clientPdfImages: clientPdfImages.length,
       fileName: effectiveFileName,
       fileType: effectiveFileType,
       fileSize: file instanceof File ? file.size : undefined,
@@ -384,7 +407,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '请先选择分析模型。' }, { status: 400 });
     }
 
-    const text = hasInlineExtractedText ? extractedText.trim() : await extractTextFromFile(file as File);
+    const text = hasInlineExtractedText
+      ? extractedText.trim()
+      : await extractTextFromFile(file as File, clientPdfImages);
     console.log('[analyze] extract:done', { length: text.trim().length });
 
     if (!text || text.trim().length < 30) {
