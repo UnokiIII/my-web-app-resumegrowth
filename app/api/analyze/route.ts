@@ -15,9 +15,11 @@ export const maxDuration = 120;
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
-const OCR_TIMEOUT_MS = 35_000;
+const OCR_TIMEOUT_MS = 45_000;
 const OCR_MAX_PAGES = 2;
 const OCR_EARLY_EXIT_TEXT_LENGTH = 500;
+const OCR_MIN_PIXELS = 3_072;
+const OCR_MAX_PIXELS = 1_048_576;
 
 async function getPdfParseClass() {
   const mod = await import('pdf-parse');
@@ -226,7 +228,7 @@ async function ocrImageWithQwen(image: string) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.QWEN_OCR_MODEL || 'qwen2.5-vl-72b-instruct',
+        model: process.env.QWEN_OCR_MODEL || 'qwen-vl-ocr',
         temperature: 0,
         messages: [{ role: 'user', content: buildOcrVisionContent(image) }],
       }),
@@ -259,6 +261,104 @@ async function ocrImageWithQwen(image: string) {
   return '';
 }
 
+function normalizeOcrImage(image: string) {
+  if (image.startsWith('data:')) {
+    return image;
+  }
+
+  return `data:image/jpeg;base64,${image}`;
+}
+
+function readDashScopeOcrText(data: any) {
+  const content = data?.output?.choices?.[0]?.message?.content;
+
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (typeof item?.text === 'string') return item.text;
+        return '';
+      })
+      .join('\n');
+  }
+
+  if (typeof data?.output?.text === 'string') {
+    return data.output.text;
+  }
+
+  return '';
+}
+
+function buildDashScopeOcrBody(image: string) {
+  return {
+    model: process.env.QWEN_OCR_MODEL || 'qwen-vl-ocr-latest',
+    input: {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              image: normalizeOcrImage(image),
+              min_pixels: OCR_MIN_PIXELS,
+              max_pixels: OCR_MAX_PIXELS,
+              enable_rotate: true,
+            },
+          ],
+        },
+      ],
+    },
+    parameters: {
+      ocr_options: {
+        task: process.env.QWEN_OCR_TASK || 'text_recognition',
+      },
+    },
+  };
+}
+
+async function ocrImageWithDashScopeNative(image: string) {
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 PDF OCR 兜底。');
+  }
+
+  let resp: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+
+  try {
+    resp = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildDashScopeOcrBody(image)),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`OCR 请求超时，已等待 ${Math.round(OCR_TIMEOUT_MS / 1000)} 秒。请稍后重试，或改传 DOCX / TXT。`);
+    }
+
+    const message = error instanceof Error ? error.message : '未知网络错误';
+    throw new Error(buildOcrErrorMessage(message));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`OCR 请求失败：${resp.status} ${text.slice(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  return readDashScopeOcrText(data).trim();
+}
+
 function buildOcrErrorMessage(message: string) {
   if (/fetch failed/i.test(message)) {
     return 'OCR 网络请求失败，请稍后重试；如果持续失败，请检查 DASHSCOPE_API_KEY、QWEN_OCR_MODEL 或当前网络连通性。';
@@ -278,7 +378,7 @@ async function ocrPdfWithQwen(images: string[]) {
   for (let index = 0; index < selectedImages.length; index += 1) {
     const image = selectedImages[index];
     try {
-      const text = (await ocrImageWithQwen(image)).trim();
+      const text = (await ocrImageWithDashScopeNative(image)).trim();
       console.log('[analyze] extract:ocr-page', {
         page: index + 1,
         length: text.length,
@@ -346,7 +446,7 @@ async function ocrPdfWithQwen(images: string[]) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.QWEN_OCR_MODEL || 'qwen2.5-vl-72b-instruct',
+        model: process.env.QWEN_OCR_MODEL || 'qwen-vl-ocr',
         temperature: 0,
         messages: [{ role: 'user', content: visionContent }],
       }),
