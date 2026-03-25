@@ -102,11 +102,10 @@ async function renderPdfPagesInBrowser(file: File) {
 
       await page.render({ canvasContext: context, viewport }).promise;
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      const base64 = dataUrl.split(',')[1];
+      const dataUrl = canvas.toDataURL('image/png');
 
-      if (base64) {
-        images.push(base64);
+      if (dataUrl) {
+        images.push(dataUrl);
       }
     }
 

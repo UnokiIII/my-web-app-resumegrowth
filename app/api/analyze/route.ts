@@ -178,7 +178,7 @@ async function ocrPdfWithQwen(images: string[]) {
     ...images.map((img) => ({
       type: 'image_url',
       image_url: {
-        url: `data:image/png;base64,${img}`,
+        url: img.startsWith('data:') ? img : `data:image/png;base64,${img}`,
       },
     })),
   ];
