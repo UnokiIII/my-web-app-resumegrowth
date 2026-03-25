@@ -176,6 +176,10 @@ export default function Home() {
         if (extractedPdfText.trim().length < 30) {
           try {
             renderedPdfImages = await renderPdfPagesInBrowser(selectedFile);
+            if (renderedPdfImages.length) {
+              formData.append('fileName', selectedFile.name);
+              formData.append('fileType', selectedFile.type || 'application/pdf');
+            }
             renderedPdfImages.forEach((image) => {
               formData.append('pdfImages', image);
             });
@@ -185,7 +189,9 @@ export default function Home() {
         }
       }
 
-      if (!isPdf || extractedPdfText.trim().length < 30) {
+      const hasClientPdfPayload = extractedPdfText.trim().length >= 30 || renderedPdfImages.length > 0;
+
+      if (!isPdf || !hasClientPdfPayload) {
         formData.append('file', selectedFile);
       }
 

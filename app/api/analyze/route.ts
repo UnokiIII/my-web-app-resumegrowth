@@ -362,7 +362,27 @@ async function extractTextFromPdfWithClientImages(buffer: Buffer, file: File, cl
     console.error('[analyze] extract:client-ocr:error', error);
   }
 
-  return extractTextFromPdf(buffer, file);
+  try {
+    const nodeText = await extractPdfTextWithNode(buffer);
+    console.log('[analyze] extract:client-fallback-pdf-parse-text', { length: nodeText.trim().length });
+    if (nodeText.trim().length >= 30) {
+      return nodeText;
+    }
+  } catch (error) {
+    console.error('[analyze] extract:client-fallback-pdf-parse-text:error', error);
+  }
+
+  try {
+    const localText = await extractPdfTextWithPyMuPDF(buffer);
+    console.log('[analyze] extract:client-fallback-pymupdf-text', { length: localText.trim().length });
+    if (localText.trim().length >= 30) {
+      return localText;
+    }
+  } catch (error) {
+    console.error('[analyze] extract:client-fallback-pymupdf-text:error', error);
+  }
+
+  throw new Error('浏览器端已完成 PDF 图片渲染，但 OCR 仍未提取到足够文本。请优先改传 DOCX / TXT，或换一份更清晰的 PDF。');
 }
 
 async function extractTextFromFile(file: File, clientPdfImages: string[] = []) {
@@ -433,7 +453,7 @@ export async function POST(req: Request) {
       fileSize: file instanceof File ? file.size : undefined,
     });
 
-    if (!hasInlineExtractedText && (!file || !(file instanceof File))) {
+    if (!hasInlineExtractedText && clientPdfImages.length === 0 && (!file || !(file instanceof File))) {
       return NextResponse.json({ error: '未检测到上传文件。' }, { status: 400 });
     }
 
@@ -441,9 +461,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '请先选择分析模型。' }, { status: 400 });
     }
 
-    const text = hasInlineExtractedText
-      ? extractedText.trim()
-      : await extractTextFromFile(file as File, clientPdfImages);
+    let text = '';
+
+    if (hasInlineExtractedText) {
+      text = extractedText.trim();
+    } else if (clientPdfImages.length && file instanceof File) {
+      text = await extractTextFromFile(file, clientPdfImages);
+    } else if (clientPdfImages.length) {
+      console.log('[analyze] request:client-images-only');
+      const ocrText = await ocrPdfWithQwen(clientPdfImages);
+      text = ocrText.trim();
+    } else {
+      text = await extractTextFromFile(file as File, clientPdfImages);
+    }
     console.log('[analyze] extract:done', { length: text.trim().length });
 
     if (!text || text.trim().length < 30) {
