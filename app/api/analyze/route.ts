@@ -17,7 +17,7 @@ const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 const OCR_TIMEOUT_MS = 45_000;
 const OCR_MAX_PAGES = 2;
-const OCR_EARLY_EXIT_TEXT_LENGTH = 500;
+const OCR_MAX_IMAGES = 4;
 const OCR_MIN_PIXELS = 3_072;
 const OCR_MAX_PIXELS = 1_048_576;
 
@@ -371,7 +371,7 @@ async function ocrPdfWithQwen(images: string[]) {
     throw new Error('OCR 兜底失败：PDF 页面图片为空。');
   }
 
-  const selectedImages = images.slice(0, OCR_MAX_PAGES);
+  const selectedImages = images.slice(0, OCR_MAX_IMAGES);
   const chunks: string[] = [];
   let lastError: Error | null = null;
 
@@ -386,10 +386,6 @@ async function ocrPdfWithQwen(images: string[]) {
 
       if (text) {
         chunks.push(text);
-      }
-
-      if (chunks.join('\n').trim().length >= OCR_EARLY_EXIT_TEXT_LENGTH) {
-        return chunks.join('\n\n').trim();
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('OCR 请求失败');

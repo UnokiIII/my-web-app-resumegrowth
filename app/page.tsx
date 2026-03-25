@@ -28,8 +28,125 @@ type ModelOption = 'qwen3.5-flash' | 'custom';
 const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev';
 const ANALYZE_REQUEST_TIMEOUT_MS = 115_000;
 const PDF_EXTRACT_TIMEOUT_MS = 10_000;
-const PDF_RENDER_SCALE = 0.85;
+const PDF_RENDER_SCALE = 0.55;
 const PDF_MAX_PAGES = 2;
+const PDF_MAX_LONG_EDGE = 1_500;
+const PDF_SLICE_MAX_HEIGHT = 1_100;
+const PDF_SLICE_OVERLAP = 64;
+const PDF_WHITE_THRESHOLD = 245;
+const PDF_JPEG_QUALITY = 0.62;
+
+function createCanvas(width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+
+function trimCanvasWhitespace(source: HTMLCanvasElement) {
+  const context = source.getContext('2d');
+  if (!context) return source;
+
+  const { width, height } = source;
+  const imageData = context.getImageData(0, 0, width, height);
+  const { data } = imageData;
+
+  let top = height;
+  let left = width;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      const alpha = data[index + 3];
+      const isBlank =
+        alpha === 0 || (r >= PDF_WHITE_THRESHOLD && g >= PDF_WHITE_THRESHOLD && b >= PDF_WHITE_THRESHOLD);
+
+      if (isBlank) continue;
+
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+
+  if (right < left || bottom < top) {
+    return source;
+  }
+
+  const padding = 12;
+  const cropLeft = Math.max(0, left - padding);
+  const cropTop = Math.max(0, top - padding);
+  const cropRight = Math.min(width, right + padding + 1);
+  const cropBottom = Math.min(height, bottom + padding + 1);
+  const cropWidth = cropRight - cropLeft;
+  const cropHeight = cropBottom - cropTop;
+
+  if (cropWidth >= width && cropHeight >= height) {
+    return source;
+  }
+
+  const cropped = createCanvas(cropWidth, cropHeight);
+  const croppedContext = cropped.getContext('2d');
+  if (!croppedContext) return source;
+
+  croppedContext.fillStyle = '#ffffff';
+  croppedContext.fillRect(0, 0, cropWidth, cropHeight);
+  croppedContext.drawImage(source, cropLeft, cropTop, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return cropped;
+}
+
+function resizeCanvasLongEdge(source: HTMLCanvasElement, maxLongEdge: number) {
+  const longEdge = Math.max(source.width, source.height);
+  if (longEdge <= maxLongEdge) {
+    return source;
+  }
+
+  const ratio = maxLongEdge / longEdge;
+  const resized = createCanvas(source.width * ratio, source.height * ratio);
+  const context = resized.getContext('2d');
+  if (!context) return source;
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, resized.width, resized.height);
+  context.drawImage(source, 0, 0, resized.width, resized.height);
+  return resized;
+}
+
+function sliceCanvasForOcr(source: HTMLCanvasElement) {
+  if (source.height <= PDF_SLICE_MAX_HEIGHT) {
+    return [source];
+  }
+
+  const slices: HTMLCanvasElement[] = [];
+  let offsetY = 0;
+  const maxSlices = PDF_MAX_PAGES * 2;
+
+  while (offsetY < source.height && slices.length < maxSlices) {
+    const sliceHeight = Math.min(PDF_SLICE_MAX_HEIGHT, source.height - offsetY);
+    const slice = createCanvas(source.width, sliceHeight);
+    const context = slice.getContext('2d');
+    if (!context) break;
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, slice.width, slice.height);
+    context.drawImage(source, 0, offsetY, source.width, sliceHeight, 0, 0, source.width, sliceHeight);
+    slices.push(slice);
+
+    if (offsetY + sliceHeight >= source.height) {
+      break;
+    }
+
+    offsetY += sliceHeight - PDF_SLICE_OVERLAP;
+  }
+
+  return slices.length ? slices : [source];
+}
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -100,13 +217,20 @@ async function renderPdfPagesInBrowser(file: File) {
 
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
 
       await page.render({ canvasContext: context, viewport }).promise;
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+      const croppedCanvas = trimCanvasWhitespace(canvas);
+      const resizedCanvas = resizeCanvasLongEdge(croppedCanvas, PDF_MAX_LONG_EDGE);
+      const slices = sliceCanvasForOcr(resizedCanvas);
 
-      if (dataUrl) {
-        images.push(dataUrl);
+      for (const slice of slices) {
+        const dataUrl = slice.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+        if (dataUrl) {
+          images.push(dataUrl);
+        }
       }
     }
 
