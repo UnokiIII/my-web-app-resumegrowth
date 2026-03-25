@@ -16,10 +16,12 @@ export const maxDuration = 120;
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
 const OCR_TIMEOUT_MS = 45_000;
+const EXTERNAL_OCR_TIMEOUT_MS = 12_000;
 const OCR_MAX_PAGES = 2;
 const OCR_MAX_IMAGES = 4;
 const OCR_MIN_PIXELS = 3_072;
 const OCR_MAX_PIXELS = 1_048_576;
+const OCR_EXTERNAL_MODEL_DEFAULTS = ['claude-opus-4-6', 'claude-opus-4-6-thinking', 'claude-sonnet-4-6'];
 
 async function getPdfParseClass() {
   const mod = await import('pdf-parse');
@@ -269,6 +271,156 @@ function normalizeOcrImage(image: string) {
   return `data:image/jpeg;base64,${image}`;
 }
 
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/$/, '');
+}
+
+function getExternalOcrBaseCandidates(baseURL: string) {
+  const trimmed = trimTrailingSlash(baseURL.trim());
+  const candidates = [trimmed];
+
+  if (!/\/v\d+(?:[a-z0-9.-]*)?$/i.test(trimmed)) {
+    candidates.push(`${trimmed}/v1`);
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+}
+
+function getExternalOcrModelCandidates() {
+  const configured = process.env.OCR_EXTERNAL_MODEL_IDS
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return configured?.length ? configured : OCR_EXTERNAL_MODEL_DEFAULTS;
+}
+
+function extractOpenAiCompatibleText(content: any): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => extractOpenAiCompatibleText(item))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (typeof content === 'object') {
+    if (typeof content.text === 'string') return content.text;
+    if (typeof content.content === 'string') return content.content;
+    if (Array.isArray(content.content)) {
+      return extractOpenAiCompatibleText(content.content);
+    }
+  }
+
+  return '';
+}
+
+function looksLikeNonOcrAnswer(text: string) {
+  const normalized = text.trim();
+  if (!normalized) return true;
+
+  return [
+    /二维码/i,
+    /无法.*解码/,
+    /无法直接解码/,
+    /建议您/,
+    /很抱歉/,
+    /I\s*(?:can|could).{0,20}(?:see|tell)/i,
+    /unable to/i,
+    /QR\s*Code/i,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+async function fetchExternalOcrModels(baseURL: string, apiKey: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6_000);
+
+  try {
+    const resp = await fetch(`${trimTrailingSlash(baseURL)}/models`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!resp.ok) return [];
+
+    const data = await resp.json();
+    return Array.isArray(data?.data)
+      ? data.data
+          .map((item: any) => (typeof item?.id === 'string' ? item.id.trim() : ''))
+          .filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function ocrImageWithExternalCompatible(image: string) {
+  const baseURL = process.env.OCR_EXTERNAL_BASE_URL;
+  const apiKey = process.env.OCR_EXTERNAL_API_KEY;
+
+  if (!baseURL || !apiKey) {
+    throw new Error('未配置 OCR_EXTERNAL_BASE_URL 或 OCR_EXTERNAL_API_KEY。');
+  }
+
+  let lastError: Error | null = null;
+
+  for (const baseCandidate of getExternalOcrBaseCandidates(baseURL)) {
+    const availableModels = await fetchExternalOcrModels(baseCandidate, apiKey);
+    const modelsToTry = availableModels.length
+      ? getExternalOcrModelCandidates().filter((modelId) => availableModels.includes(modelId))
+      : getExternalOcrModelCandidates();
+
+    for (const modelId of modelsToTry) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), EXTERNAL_OCR_TIMEOUT_MS);
+
+      try {
+        const resp = await fetch(`${trimTrailingSlash(baseCandidate)}/chat/completions`, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            temperature: 0,
+            messages: [{ role: 'user', content: buildOcrVisionContent(image) }],
+          }),
+        });
+
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error(`external:${modelId}:${resp.status}:${body.slice(0, 160)}`);
+        }
+
+        const data = await resp.json();
+        const text = extractOpenAiCompatibleText(data?.choices?.[0]?.message?.content).trim();
+
+        if (!looksLikeNonOcrAnswer(text)) {
+          return { text, modelId };
+        }
+
+        throw new Error(`external:${modelId}:non-ocr-answer`);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('外部 OCR 请求失败');
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  throw lastError || new Error('外部 OCR 当前不可用。');
+}
+
 function readDashScopeOcrText(data: any) {
   const content = data?.output?.choices?.[0]?.message?.content;
 
@@ -378,9 +530,26 @@ async function ocrPdfWithQwen(images: string[]) {
   for (let index = 0; index < selectedImages.length; index += 1) {
     const image = selectedImages[index];
     try {
-      const text = (await ocrImageWithDashScopeNative(image)).trim();
+      let text = '';
+      let source = 'dashscope-native';
+
+      try {
+        const externalResult = await ocrImageWithExternalCompatible(image);
+        text = externalResult.text.trim();
+        source = `external:${externalResult.modelId}`;
+      } catch (externalError) {
+        const message = externalError instanceof Error ? externalError.message : 'external ocr failed';
+        console.warn('[analyze] extract:ocr-page:external-fallback', {
+          page: index + 1,
+          message,
+        });
+
+        text = (await ocrImageWithDashScopeNative(image)).trim();
+      }
+
       console.log('[analyze] extract:ocr-page', {
         page: index + 1,
+        source,
         length: text.length,
       });
 
