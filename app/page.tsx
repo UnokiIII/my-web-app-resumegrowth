@@ -29,6 +29,7 @@ const FRONTEND_VERSION = process.env.NEXT_PUBLIC_FRONTEND_VERSION || 'local-dev'
 const ANALYZE_REQUEST_TIMEOUT_MS = 115_000;
 const PDF_EXTRACT_TIMEOUT_MS = 10_000;
 const PDF_RENDER_SCALE = 0.85;
+const PDF_MAX_PAGES = 2;
 
 async function extractPdfTextInBrowser(file: File) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -40,7 +41,7 @@ async function extractPdfTextInBrowser(file: File) {
   const pdf = await loadingTask.promise;
 
   try {
-    const pages = Math.min(pdf.numPages, 3);
+    const pages = Math.min(pdf.numPages, PDF_MAX_PAGES);
     const chunks: string[] = [];
 
     for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
@@ -84,7 +85,7 @@ async function renderPdfPagesInBrowser(file: File) {
   const pdf = await loadingTask.promise;
 
   try {
-    const pages = Math.min(pdf.numPages, 3);
+    const pages = Math.min(pdf.numPages, PDF_MAX_PAGES);
     const images: string[] = [];
 
     for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {

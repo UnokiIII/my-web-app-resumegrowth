@@ -15,7 +15,9 @@ export const maxDuration = 120;
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_MODELS: SupportedModel[] = ['qwen3.5-flash', 'claude-4.6-opus', 'gpt-5.4', 'gemini-3.1'];
-const OCR_TIMEOUT_MS = 75_000;
+const OCR_TIMEOUT_MS = 35_000;
+const OCR_MAX_PAGES = 2;
+const OCR_EARLY_EXIT_TEXT_LENGTH = 500;
 
 async function getPdfParseClass() {
   const mod = await import('pdf-parse');
@@ -76,7 +78,10 @@ async function runPyMuPdf(buffer: Buffer, mode: 'text' | 'images') {
   try {
     const pythonBin = await resolvePythonCommand();
     const scriptPath = path.join(process.cwd(), 'scripts', 'pdf_to_images.py');
-    const args = pythonBin === 'py' ? ['-3', scriptPath, pdfPath, '3', mode] : [scriptPath, pdfPath, '3', mode];
+    const args =
+      pythonBin === 'py'
+        ? ['-3', scriptPath, pdfPath, String(OCR_MAX_PAGES), mode]
+        : [scriptPath, pdfPath, String(OCR_MAX_PAGES), mode];
     const { stdout, stderr } = await execFileAsync(pythonBin, args, {
       cwd: process.cwd(),
       maxBuffer: 20 * 1024 * 1024,
@@ -107,7 +112,7 @@ async function extractPdfTextWithNode(buffer: Buffer) {
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
   try {
-    const payload = await parser.getText({ first: 3 });
+    const payload = await parser.getText({ first: OCR_MAX_PAGES });
     return payload?.text || '';
   } finally {
     await parser.destroy();
@@ -120,8 +125,8 @@ async function renderPdfPagesToImagesWithNode(buffer: Buffer) {
 
   try {
     const payload = await parser.getScreenshot({
-      first: 3,
-      scale: 1.0,
+      first: OCR_MAX_PAGES,
+      scale: 0.8,
       imageDataUrl: false,
       imageBuffer: true,
     });
@@ -145,7 +150,7 @@ async function extractEmbeddedPdfImagesWithNode(buffer: Buffer) {
 
   try {
     const payload = await parser.getImage({
-      first: 3,
+      first: OCR_MAX_PAGES,
       imageDataUrl: false,
       imageBuffer: true,
       imageThreshold: 50,
@@ -187,6 +192,73 @@ function pickBestPdfImages(renderedImages: string[], embeddedImages: string[]) {
   return { source: 'none', images: [] as string[] };
 }
 
+function buildOcrVisionContent(image: string) {
+  return [
+    {
+      type: 'text',
+      text: '请对这一个简历 PDF 页面做 OCR，只输出提取出的纯文本内容，不要总结，不要解释，不要加 markdown。',
+    },
+    {
+      type: 'image_url',
+      image_url: {
+        url: image.startsWith('data:') ? image : `data:image/png;base64,${image}`,
+      },
+    },
+  ];
+}
+
+async function ocrImageWithQwen(image: string) {
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 PDF OCR 兜底。');
+  }
+
+  let resp: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+
+  try {
+    resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.QWEN_OCR_MODEL || 'qwen2.5-vl-72b-instruct',
+        temperature: 0,
+        messages: [{ role: 'user', content: buildOcrVisionContent(image) }],
+      }),
+    });
+  } catch (error) {
+    // @ts-ignore legacy unreachable branch kept for safety
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`OCR 请求超时，已等待 ${Math.round(OCR_TIMEOUT_MS / 1000)} 秒。请稍后重试，或改传 DOCX / TXT。`);
+    }
+
+    const message = error instanceof Error ? error.message : '未知网络错误';
+    throw new Error(buildOcrErrorMessage(message));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`OCR 请求失败：${resp.status} ${text.slice(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((item: any) => item?.text || '').join('\n');
+  }
+
+  return '';
+}
+
 function buildOcrErrorMessage(message: string) {
   if (/fetch failed/i.test(message)) {
     return 'OCR 网络请求失败，请稍后重试；如果持续失败，请检查 DASHSCOPE_API_KEY、QWEN_OCR_MODEL 或当前网络连通性。';
@@ -195,6 +267,50 @@ function buildOcrErrorMessage(message: string) {
 }
 
 async function ocrPdfWithQwen(images: string[]) {
+  if (!images.length) {
+    throw new Error('OCR 兜底失败：PDF 页面图片为空。');
+  }
+
+  const selectedImages = images.slice(0, OCR_MAX_PAGES);
+  const chunks: string[] = [];
+  let lastError: Error | null = null;
+
+  for (let index = 0; index < selectedImages.length; index += 1) {
+    const image = selectedImages[index];
+    try {
+      const text = (await ocrImageWithQwen(image)).trim();
+      console.log('[analyze] extract:ocr-page', {
+        page: index + 1,
+        length: text.length,
+      });
+
+      if (text) {
+        chunks.push(text);
+      }
+
+      if (chunks.join('\n').trim().length >= OCR_EARLY_EXIT_TEXT_LENGTH) {
+        return chunks.join('\n\n').trim();
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('OCR 请求失败');
+      console.error('[analyze] extract:ocr-page:error', {
+        page: index + 1,
+        message: lastError.message,
+      });
+    }
+  }
+
+  const mergedText = chunks.join('\n\n').trim();
+  if (mergedText) {
+    return mergedText;
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return '';
+
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) {
     throw new Error('未配置 DASHSCOPE_API_KEY，无法执行 PDF OCR 兜底。');
@@ -235,7 +351,7 @@ async function ocrPdfWithQwen(images: string[]) {
         messages: [{ role: 'user', content: visionContent }],
       }),
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`OCR 请求超时，已等待 ${Math.round(OCR_TIMEOUT_MS / 1000)} 秒。请稍后重试，或改传 DOCX / TXT。`);
     }
