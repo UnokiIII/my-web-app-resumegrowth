@@ -1,0 +1,30 @@
+﻿c6be786 fix: add baidu ocr fallback
+bbffad3 fix: add external ocr fallback before dashscope
+a3ca637 fix: compress and slice pdf images for ocr
+9000225 fix: switch pdf ocr to dashscope native api
+8bd679f fix: split pdf ocr into smaller requests
+550eb5c fix: prefer client-rendered pdf images for ocr
+f06a6d7 fix: extend pdf analysis timeout window
+aa46f97 fix: lazy load pdf parser in analyze route
+2941d99 fix: inline pdf fallback parsing for production
+d9b12d2 fix: align browser pdf image fallback with ocr pipeline
+b75eb57 chore: bump frontend version to 2.0.1
+794bb1e fix: use browser-rendered pdf images for ocr fallback
+c03d14c chore: update social cover image
+b9ca82c feat: move paywall storage to supabase
+d39f909 fix: restore paywall admin in production
+d40d606 chore: bump frontend version to 2.0.0
+2acbc21 feat: finalize manual paywall release flow
+37d799d chore: add wechat domain verification file
+1ebbff1 fix: improve mobile layout compatibility
+ee6a59d fix: stabilize OCR fallback for scanned PDFs
+cfc41dd style: refine report and print presentation
+093fa38 fix: stabilize browser pdf text extraction
+2dfb7fc fix: avoid hanging on browser pdf parsing
+a2e1e89 fix: cap analysis request time
+c5a45aa perf: speed up pdf text uploads
+d4b9a64 fix: extract pdf text in browser before upload
+a368b02 fix: include pdf parser scripts in deployment traces
+588fee4 fix: harden deployed pdf extraction pipeline
+3fa15d5 fix: support deployed pdf parsing without local ocr
+d3f6da2 feat: ship knowledge-driven resume strategy engine
