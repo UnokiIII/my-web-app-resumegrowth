@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {
-    NEXT_PUBLIC_FRONTEND_VERSION: '2.2.1',
+    NEXT_PUBLIC_FRONTEND_VERSION: '2.2.2',
   },
   images: {
     domains: [],

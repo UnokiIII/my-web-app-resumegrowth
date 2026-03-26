@@ -33,6 +33,7 @@ const MODEL_LABEL: Record<SupportedModel, string> = {
 
 const PROVIDER_TIMEOUT_MS = 75_000;
 const OPENAI_COMPATIBLE_TIMEOUT_MS = 20_000;
+const OPENAI_COMPATIBLE_PROBE_TIMEOUT_MS = 6_000;
 
 class ProviderRequestError extends Error {
   status: number;
@@ -699,6 +700,21 @@ function shouldRetryWithAnotherModel(error: unknown) {
   return false;
 }
 
+function isUnavailableGatewayError(error: unknown) {
+  if (!(error instanceof ProviderRequestError)) return false;
+
+  const body = `${error.message}\n${error.rawText}`.toLowerCase();
+
+  return (
+    /upstream access forbidden/.test(body) ||
+    /current no available credential/.test(body) ||
+    /no available channel/.test(body) ||
+    /model_not_found/.test(body) ||
+    /upstream_error/.test(body) ||
+    /please contact administrator/.test(body)
+  );
+}
+
 async function fetchOpenAiCompatibleModels(baseURL: string, apiKey: string) {
   const endpoint = trimTrailingSlash(baseURL) + '/models';
   const data = await fetchJsonWithHandling({
@@ -774,6 +790,37 @@ async function resolveOpenAiCompatibleModel(
       availableModelsSample: [] as string[],
     };
   }
+}
+
+async function probeOpenAiCompatibleModel(params: {
+  baseURL: string;
+  apiKey: string;
+  modelId: string;
+  providerName: string;
+}) {
+  const { baseURL, apiKey, modelId, providerName } = params;
+  const endpoint = trimTrailingSlash(baseURL) + '/chat/completions';
+
+  await fetchJsonWithHandling({
+    url: endpoint,
+    providerName,
+    modelId,
+    baseURL,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        temperature: 0,
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'Reply with only OK.' }],
+      }),
+    },
+    timeoutMs: OPENAI_COMPATIBLE_PROBE_TIMEOUT_MS,
+  });
 }
 
 function assertCustomConfig(config: CustomApiConfig, model: SupportedModel) {
@@ -882,10 +929,37 @@ export async function analyzeResumeByModel(
     let resolvedModelId = resolved.resolvedModelId;
     let result: AnalysisResult | null = null;
     let lastError: unknown = null;
+    let gatewayUnavailable = false;
 
     for (const candidateModelId of resolved.orderedModelIds) {
       attemptedModelIds.push(candidateModelId);
 
+      try {
+        await probeOpenAiCompatibleModel({
+          baseURL: resolvedBase.baseURL,
+          apiKey: cfg.apiKey,
+          modelId: candidateModelId,
+          providerName: MODEL_LABEL[model],
+        });
+        resolvedModelId = candidateModelId;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (isUnavailableGatewayError(error)) {
+          gatewayUnavailable = true;
+          continue;
+        }
+        if (!shouldRetryWithAnotherModel(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (gatewayUnavailable && resolvedModelId === resolved.resolvedModelId) {
+      throw new Error('当前外部模型网关列得出模型，但实际不可用。请更换 API Base URL / API Key，或切回内置模型。');
+    }
+
+    for (const candidateModelId of [resolvedModelId, ...resolved.orderedModelIds.filter((id) => id !== resolvedModelId)]) {
       try {
         result = await callOpenAiCompatible({
           baseURL: resolvedBase.baseURL,
@@ -906,6 +980,9 @@ export async function analyzeResumeByModel(
     }
 
     if (!result) {
+      if (gatewayUnavailable) {
+        throw new Error('当前外部模型网关列得出模型，但实际不可用。请更换 API Base URL / API Key，或切回内置模型。');
+      }
       if (lastError instanceof Error) throw lastError;
       throw new Error(`${MODEL_LABEL[model]} 当前无可用模型，请更换 API Base URL、API Key 或手动指定可用 model id`);
     }
