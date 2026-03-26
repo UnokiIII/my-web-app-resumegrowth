@@ -32,6 +32,7 @@ const MODEL_LABEL: Record<SupportedModel, string> = {
 };
 
 const PROVIDER_TIMEOUT_MS = 75_000;
+const OPENAI_COMPATIBLE_TIMEOUT_MS = 20_000;
 
 class ProviderRequestError extends Error {
   status: number;
@@ -361,11 +362,12 @@ async function fetchJsonWithHandling(params: {
   providerName: string;
   modelId: string;
   baseURL: string;
+  timeoutMs?: number;
 }) {
-  const { url, init, providerName, modelId, baseURL } = params;
+  const { url, init, providerName, modelId, baseURL, timeoutMs = PROVIDER_TIMEOUT_MS } = params;
   let resp: Response;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     resp = await fetch(url, { ...init, signal: controller.signal });
@@ -415,8 +417,9 @@ async function callOpenAiCompatible(params: {
   resume: ResumeData;
   providerName: string;
   knowledgeContext?: KnowledgeContext;
+  timeoutMs?: number;
 }) {
-  const { baseURL, apiKey, modelId, resume, providerName, knowledgeContext } = params;
+  const { baseURL, apiKey, modelId, resume, providerName, knowledgeContext, timeoutMs = OPENAI_COMPATIBLE_TIMEOUT_MS } = params;
   const endpoint = baseURL.replace(/\/$/, '') + '/chat/completions';
   const fallback = buildFallbackAnalysis(resume, knowledgeContext);
 
@@ -440,6 +443,7 @@ async function callOpenAiCompatible(params: {
         ],
       }),
     },
+    timeoutMs,
   });
 
   const content = parseTextFromOpenAiCompat(data);
@@ -453,7 +457,7 @@ async function callOpenAiNative(params: {
   resume: ResumeData;
   knowledgeContext?: KnowledgeContext;
 }) {
-  return callOpenAiCompatible({ ...params, providerName: 'OpenAI' });
+  return callOpenAiCompatible({ ...params, providerName: 'OpenAI', timeoutMs: PROVIDER_TIMEOUT_MS });
 }
 
 async function callAnthropicNative(params: {
@@ -560,6 +564,7 @@ async function analyzeWithQwen(resume: ResumeData, knowledgeContext?: KnowledgeC
     resume,
     knowledgeContext,
     providerName: 'Qwen',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
   });
 }
 
@@ -610,6 +615,50 @@ function scoreModelCandidate(requested: string, candidate: string) {
   return score;
 }
 
+function boostLightweightModel(candidate: string, preferredFamily = '') {
+  const normalized = normalizeComparableModelId(candidate);
+  let score = 0;
+
+  const prefer = (pattern: RegExp, value: number) => {
+    if (pattern.test(normalized)) score += value;
+  };
+
+  const penalize = (pattern: RegExp, value: number) => {
+    if (pattern.test(normalized)) score -= value;
+  };
+
+  prefer(/(?:^|-)mini(?:-|$)/, 260);
+  prefer(/(?:^|-)flash(?:-|$)/, 240);
+  prefer(/(?:^|-)haiku(?:-|$)/, 220);
+  prefer(/(?:^|-)lite(?:-|$)|(?:^|-)light(?:-|$)/, 200);
+  prefer(/(?:^|-)sonnet(?:-|$)/, 160);
+
+  penalize(/(?:^|-)opus(?:-|$)/, 1400);
+  penalize(/(?:^|-)thinking(?:-|$)/, 180);
+  penalize(/(?:^|-)pro(?:-|$)/, 120);
+  penalize(/(?:^|-)max(?:-|$)/, 100);
+
+  if (preferredFamily === 'claude') {
+    prefer(/^claude-haiku-/, 260);
+    prefer(/^claude-sonnet-/, 220);
+    penalize(/^claude-opus-/, 1800);
+  }
+
+  if (preferredFamily === 'gpt') {
+    prefer(/^gpt-4o-mini(?:-|$)/, 260);
+    prefer(/^gpt-41-mini(?:-|$)/, 240);
+    prefer(/^gpt-4o(?:-|$)/, 140);
+    penalize(/^gpt-5(?:-|$)/, 140);
+  }
+
+  if (preferredFamily === 'gemini') {
+    prefer(/^gemini-.*flash/, 240);
+    penalize(/^gemini-.*pro/, 120);
+  }
+
+  return score;
+}
+
 function orderOpenAiCompatibleModels(requestedModelId: string, available: string[], preferredFamily = '') {
   const requested = requestedModelId.trim();
   const normalizedAlias = requested ? normalizeModelId('', requested) : requested;
@@ -625,6 +674,7 @@ function orderOpenAiCompatibleModels(requestedModelId: string, available: string
       if (preferredFamily === 'claude' && normalizedItem.startsWith('claude-')) score += 120;
       if (preferredFamily === 'gpt' && normalizedItem.startsWith('gpt-')) score += 120;
       if (preferredFamily === 'gemini' && normalizedItem.startsWith('gemini-')) score += 120;
+      score += boostLightweightModel(item, preferredFamily);
 
       return { item, score };
     })
