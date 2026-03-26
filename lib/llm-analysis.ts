@@ -239,7 +239,7 @@ function pickDefaultModelFromAvailable(available: string[], preferredFamily: str
     return list.find((item) => /^gpt-/i.test(item)) || list[0];
   }
 
-  return list[0];
+  return orderOpenAiCompatibleModels('', list, '')[0] || list[0];
 }
 
 function trimTrailingSlash(value: string) {
@@ -859,6 +859,7 @@ export async function analyzeResumeByModel(
   }
 
   if (model === 'claude-4.6-opus' || model === 'gpt-5.4' || model === 'gemini-3.1') {
+    const hasExplicitModelId = Boolean((customConfig.modelId || '').trim());
     const cfg = assertCustomConfig(customConfig, model);
     const requestedModelId = cfg.modelId;
     const provider = detectProvider(cfg.baseURL, requestedModelId);
@@ -921,8 +922,8 @@ export async function analyzeResumeByModel(
     const resolved = await resolveOpenAiCompatibleModel(
       resolvedBase.baseURL,
       cfg.apiKey,
-      requestedModelId,
-      getPreferredFamily(model),
+      hasExplicitModelId ? requestedModelId : '',
+      hasExplicitModelId ? getPreferredFamily(model) : '',
       resolvedBase.availableModels
     );
     const attemptedModelIds: string[] = [];
