@@ -34,6 +34,7 @@ const MODEL_LABEL: Record<SupportedModel, string> = {
 const PROVIDER_TIMEOUT_MS = 75_000;
 const OPENAI_COMPATIBLE_TIMEOUT_MS = 20_000;
 const OPENAI_COMPATIBLE_PROBE_TIMEOUT_MS = 6_000;
+const OPENAI_COMPATIBLE_ANALYSIS_TIMEOUT_MS = 135_000;
 
 class ProviderRequestError extends Error {
   status: number;
@@ -375,7 +376,7 @@ async function fetchJsonWithHandling(params: {
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(
-        `外部模型请求超时：provider=${providerName}，modelId=${modelId}。已等待 ${Math.round(PROVIDER_TIMEOUT_MS / 1000)} 秒，请稍后重试。`
+        `外部模型请求超时：provider=${providerName}，modelId=${modelId}。已等待 ${Math.round(timeoutMs / 1000)} 秒，请稍后重试。`
       );
     }
 
@@ -969,6 +970,7 @@ export async function analyzeResumeByModel(
           resume,
           knowledgeContext,
           providerName: MODEL_LABEL[model],
+          timeoutMs: OPENAI_COMPATIBLE_ANALYSIS_TIMEOUT_MS,
         });
         resolvedModelId = candidateModelId;
         break;
