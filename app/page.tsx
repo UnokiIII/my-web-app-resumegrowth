@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Upload,
   FileText,
@@ -10,6 +10,13 @@ import {
   Shield,
   Zap,
   CheckCircle2,
+  Check,
+  ChevronDown,
+  HelpCircle,
+  Clock3,
+  LockKeyhole,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AnalysisResult } from '@/lib/mock-data';
@@ -35,6 +42,36 @@ const PDF_SLICE_MAX_HEIGHT = 1_100;
 const PDF_SLICE_OVERLAP = 64;
 const PDF_WHITE_THRESHOLD = 245;
 const PDF_JPEG_QUALITY = 0.62;
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const ACCEPTED_FILE_EXTENSIONS = ['.pdf', '.docx', '.txt'];
+
+type FlowStatus = 'idle' | 'modelSelected' | 'fileSelected' | 'validating' | 'analyzing' | 'error';
+
+function trackConversionEvent(
+  name: string,
+  payload: Record<string, string | number | boolean> = {}
+) {
+  if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(
+    new CustomEvent('resumegrowth:conversion', {
+      detail: { name, payload },
+    })
+  );
+
+  const gtag = (window as Window & {
+    gtag?: (event: string, eventName: string, params?: Record<string, unknown>) => void;
+  }).gtag;
+
+  if (typeof gtag === 'function') {
+    gtag('event', name, payload);
+  }
+}
+
+function getFileExtension(fileName: string) {
+  const lastDot = fileName.lastIndexOf('.');
+  return lastDot >= 0 ? fileName.slice(lastDot).toLowerCase() : '';
+}
 
 function createCanvas(width: number, height: number) {
   const canvas = document.createElement('canvas');
@@ -242,7 +279,7 @@ async function renderPdfPagesInBrowser(file: File) {
   }
 }
 
-export default function Home() {
+function LegacyHome() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -507,84 +544,213 @@ export default function Home() {
             <div className="mb-4 text-sm font-medium text-white/90">第二步：上传简历</div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <label className="mb-2 block text-sm text-white/75">选择文件（PDF / DOCX / TXT）</label>
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.txt"
-                onChange={handleFileChange}
-                className="block w-full min-w-0 cursor-pointer rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none file:mr-3 file:max-w-[7.5rem] file:overflow-hidden file:text-ellipsis file:whitespace-nowrap file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-black"
-              />
+              <label className="mb-2 block text-sm text-white/75">选择文件（PDF / DOCX / TXT）</lab…3165 tokens truncated…sumeGrowth</span>
+              <span className="hidden text-[11px] text-white/45 sm:block">把经历变成下一步</span>
+            </span>
+          </a>
+          <nav className="hidden items-center gap-6 text-sm text-white/60 md:flex" aria-label="主导航">
+            <a className="transition hover:text-white" href="#preview">你会得到什么</a>
+            <a className="transition hover:text-white" href="#steps">使用步骤</a>
+            <a className="transition hover:text-white" href="#trust">隐私与安全</a>
+            <a className="rounded-full border border-white/15 px-4 py-2 text-white transition hover:border-white/35" href="#start">开始分析</a>
+          </nav>
+          <a className="rounded-full border border-white/15 px-3 py-2 text-xs text-white md:hidden" href="#start">开始分析</a>
+        </div>
+      </header>
+
+      <section className="relative z-10 px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-20 lg:px-8">
+        <div className="mx-auto grid max-w-7xl items-start gap-10 lg:grid-cols-[1.02fr_0.98fr] lg:gap-16">
+          <div className="pt-2 lg:pt-10">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3.5 py-2 text-xs font-medium text-cyan-100 sm:text-sm">
+              <Sparkles className="h-4 w-4" />
+              一人企业成长方案生成器
+            </div>
+            <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] sm:text-6xl lg:text-7xl">
+              把你的经历，
+              <span className="block bg-gradient-to-r from-cyan-200 via-white to-violet-200 bg-clip-text text-transparent">变成一条可执行的路。</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-8 text-white/65 sm:text-lg">
+              上传一份简历，AI 会帮你梳理主定位、备选方向、第一单打法，以及接下来 90 天应该做什么。
+            </p>
+            <div className="mt-7 flex flex-wrap gap-2.5 text-xs text-white/65 sm:text-sm">
+              {['不只看职位', '给出商业化方向', '直接拆成行动清单'].map((item) => (
+                <span key={item} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2">
+                  <Check className="h-3.5 w-3.5 text-cyan-200" />
+                  {item}
+                </span>
+              ))}
+            </div>
+            <a href="#start" className="mt-8 inline-flex items-center gap-2 rounded-full bg-white px-5 py-3.5 text-sm font-semibold text-[#080a0f] shadow-[0_16px_50px_rgba(255,255,255,0.14)] transition hover:bg-cyan-50">
+              免费生成我的成长方案
+              <ArrowRight className="h-4 w-4" />
+            </a>
+            <p className="mt-4 text-xs text-white/40">支持 PDF、DOCX、TXT · 默认使用内置模型 · 无需注册</p>
+          </div>
+
+          <div id="start" className="scroll-mt-24 rounded-[30px] border border-white/15 bg-white/[0.065] p-4 shadow-[0_30px_100px_rgba(0,0,0,0.28)] backdrop-blur-xl sm:p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Start here</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight">生成你的专属方案</h2>
+                <p className="mt-2 text-sm leading-6 text-white/55">两步完成，分析通常需要 1–3 分钟。</p>
+              </div>
+              <div className="hidden rounded-2xl border border-white/10 bg-black/20 p-3 text-right sm:block">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-white/40">你的输入</div>
+                <div className="mt-1 text-sm font-semibold text-white/85">1 份简历</div>
+              </div>
             </div>
 
-            <div
-              className={cn(
-                'mt-4 rounded-2xl border px-4 py-4',
-                selectedFile ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02]'
-              )}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void analyzeResume();
+              }}
+              data-flow-status={flowStatus}
+              className="space-y-5"
+              aria-describedby={error ? 'analysis-error' : undefined}
             >
-              {selectedFile ? (
-                <div className="flex min-w-0 items-center gap-3">
-                  <FileText className="h-5 w-5 text-emerald-300" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-emerald-200">已上传完成</div>
-                    <div className="break-all text-xs text-emerald-200/70">{selectedFile.name}</div>
+              <fieldset>
+                <legend className="mb-3 text-sm font-semibold text-white/85">1. 选择分析模型</legend>
+                <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="分析模型">
+                  <label className="group cursor-pointer">
+                    <input
+                      type="radio"
+                      name="model"
+                      value="qwen3.5-flash"
+                      checked={selectedModel === 'qwen3.5-flash'}
+                      onChange={() => selectModel('qwen3.5-flash')}
+                      className="peer sr-only"
+                    />
+                    <span className="block rounded-2xl border border-white/12 bg-black/10 p-4 transition group-hover:border-white/30 peer-focus-visible:ring-2 peer-focus-visible:ring-cyan-200 peer-checked:border-cyan-100/60 peer-checked:bg-cyan-100/10">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">内置模型</span>
+                        <span className="rounded-full bg-cyan-100/10 px-2 py-1 text-[10px] text-cyan-100">推荐</span>
+                      </span>
+                      <span className="mt-2 block text-xs leading-5 text-white/50">Qwen 3.5 Plus，无需填写任何配置</span>
+                    </span>
+                  </label>
+                  <label className="group cursor-pointer">
+                    <input
+                      type="radio"
+                      name="model"
+                      value="custom"
+                      checked={selectedModel === 'custom'}
+                      onChange={() => selectModel('custom')}
+                      className="peer sr-only"
+                    />
+                    <span className="block rounded-2xl border border-white/12 bg-black/10 p-4 transition group-hover:border-white/30 peer-focus-visible:ring-2 peer-focus-visible:ring-cyan-200 peer-checked:border-violet-200/60 peer-checked:bg-violet-200/10">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">自定义模型</span>
+                        <span className="text-[10px] text-white/40">高级</span>
+                      </span>
+                      <span className="mt-2 block text-xs leading-5 text-white/50">适用于 Claude、GPT、Gemini 等兼容接口</span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+
+              {isCustomModel && (
+                <div className="space-y-3 rounded-2xl border border-violet-200/20 bg-violet-200/[0.06] p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-violet-100"><LockKeyhole className="h-4 w-4" />自定义模型配置</div>
+                  <div>
+                    <label htmlFor="api-base-url" className="mb-1.5 block text-xs text-white/65">API Base URL</label>
+                    <input id="api-base-url" value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder="https://your-gateway.com/v1" autoComplete="url" className="w-full rounded-xl border border-white/12 bg-[#10131a] px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-100/60 focus:ring-2 focus:ring-cyan-100/20" />
+                  </div>
+                  <div>
+                    <label htmlFor="api-key" className="mb-1.5 block text-xs text-white/65">API Key</label>
+                    <input id="api-key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="仅用于本次请求" autoComplete="off" className="w-full rounded-xl border border-white/12 bg-[#10131a] px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-100/60 focus:ring-2 focus:ring-cyan-100/20" />
+                  </div>
+                  <div>
+                    <label htmlFor="model-id" className="mb-1.5 block text-xs text-white/65">模型名称 <span className="font-normal text-white/35">（可选）</span></label>
+                    <input id="model-id" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder="例如 claude-sonnet-4-6" autoComplete="off" className="w-full rounded-xl border border-white/12 bg-[#10131a] px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-100/60 focus:ring-2 focus:ring-cyan-100/20" />
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-3 text-white/50">
-                  <Upload className="h-5 w-5" />
-                  <div className="text-sm">尚未上传文件</div>
-                </div>
               )}
-            </div>
 
-            <button
-              type="button"
-              onClick={analyzeResume}
-              disabled={!selectedFile || isAnalyzing}
-              className={cn(
-                'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-medium transition-all',
-                selectedFile && !isAnalyzing
-                  ? 'bg-white text-black shadow-lg shadow-white/10 hover:bg-white/90'
-                  : 'cursor-not-allowed border border-white/10 bg-white/5 text-white/35'
-              )}
-            >
-              {isAnalyzing ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
-                  正在分析，可能需要1～3分钟...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  开始分析
-                </>
-              )}
-            </button>
+              <fieldset>
+                <legend className="mb-3 text-sm font-semibold text-white/85">2. 上传简历</legend>
+                <label
+                  htmlFor="resume-upload"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleDrop}
+                  className="group block cursor-pointer rounded-2xl border border-dashed border-cyan-100/35 bg-cyan-100/[0.04] p-5 text-center transition hover:border-cyan-100/70 hover:bg-cyan-100/[0.08] focus-within:ring-2 focus-within:ring-cyan-100"
+                >
+                  <input id="resume-upload" name="resume" type="file" accept=".pdf,.docx,.txt" onChange={handleFileChange} className="sr-only" aria-describedby="resume-upload-help" />
+                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-100/10 text-cyan-100 transition group-hover:scale-105"><Upload className="h-5 w-5" /></span>
+                  <span className="mt-3 block text-sm font-semibold">点击选择或拖拽文件到这里</span>
+                  <span id="resume-upload-help" className="mt-1 block text-xs leading-5 text-white/45">支持 PDF / DOCX / TXT，单个文件不超过 10 MB</span>
+                </label>
+              </fieldset>
 
-            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 py-14 sm:px-6 sm:py-20">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="mb-3 text-2xl font-semibold tracking-tight sm:text-3xl">你会拿到什么</h2>
-          <p className="mb-10 text-white/60">简洁但完整的增长建议，从“我是谁”到“下一步做什么”。</p>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {features.map((feature) => (
-              <div key={feature.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
-                  <feature.icon className="h-5 w-5" />
-                </div>
-                <h3 className="mb-2 font-medium">{feature.title}</h3>
-                <p className="text-sm leading-relaxed text-white/60">{feature.desc}</p>
+              <div aria-live="polite" className="min-h-[70px] rounded-2xl border border-white/10 bg-black/15 p-4">
+                {selectedFile ? (
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200"><FileText className="h-5 w-5" /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-emerald-100">文件已准备好</p>
+                      <p className="mt-1 truncate text-xs text-white/50">{selectedFile.name} · {formatFileSize(selectedFile.size)}</p>
+                    </div>
+                    <button type="button" onClick={clearFile} className="rounded-lg p-2 text-white/45 transition hover:bg-white/10 hover:text-white" aria-label="移除已选文件"><X className="h-4 w-4" /></button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 text-white/45"><FileText className="h-5 w-5" /><span className="text-sm">上传后会在这里显示文件状态</span></div>
+                )}
               </div>
-            ))}
+
+              {error && <p id="analysis-error" role="alert" className="rounded-xl border border-rose-300/25 bg-rose-300/10 px-3 py-2.5 text-sm leading-6 text-rose-100">{error}</p>}
+
+              <button type="submit" disabled={!selectedFile || isAnalyzing} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-4 text-sm font-semibold text-[#080a0f] shadow-[0_16px_50px_rgba(255,255,255,0.12)] transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35 disabled:shadow-none">
+                {isAnalyzing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />{analysisStage}</> : <><Sparkles className="h-4 w-4" />开始分析</>}
+              </button>
+              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-white/40"><Shield className="h-3.5 w-3.5" />不会把简历正文写入转化统计</p>
+            </form>
           </div>
         </div>
       </section>
+
+      <section id="preview" className="relative z-10 border-y border-white/10 bg-white/[0.025] px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100/70">A clearer next step</p>
+            <h2 className="mt-4 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">不是一份泛泛的职业测评，而是一份执行版成长方案。</h2>
+            <p className="mt-5 max-w-lg leading-8 text-white/55">你会看到从“我是谁”到“我先卖什么”的完整推导，并且知道这一周就可以开始验证哪一件事。</p>
+          </div>
+          <div className="rounded-[28px] border border-white/15 bg-[#10131b] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.25)] sm:p-6">
+            <div className="mb-5 flex items-center justify-between border-b border-white/10 pb-4"><div><p className="text-[10px] uppercase tracking-[0.2em] text-cyan-100/60">示例报告预览</p><h3 className="mt-1 text-lg font-semibold">你的成长路线图</h3></div><span className="rounded-full border border-emerald-200/20 bg-emerald-200/10 px-2.5 py-1 text-[10px] text-emerald-100">Demo</span></div>
+            <div className="space-y-3">
+              {reportPreview.map(([label, value], index) => <div key={label} className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4"><span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-cyan-100/10 text-xs font-bold text-cyan-100">0{index + 1}</span><div><p className="text-xs text-white/40">{label}</p><p className="mt-1 text-sm font-medium text-white/85">{value}</p></div></div>)}
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-xs text-white/40">你会知道</p><p className="mt-2 text-sm font-medium">优先服务谁、解决什么问题</p></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-xs text-white/40">你会开始做</p><p className="mt-2 text-sm font-medium">一套能获得反馈的最小行动</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="steps" className="relative z-10 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-2xl"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-100/70">Simple by design</p><h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">三步，从经历走到行动。</h2><p className="mt-4 leading-8 text-white/55">把复杂的定位与商业化问题拆成一个可以马上开始的流程。</p></div>
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            {[['01', '选择模型', '默认使用内置模型；如果你有自己的 API，也可以切换到自定义模型。'], ['02', '上传简历', '支持 PDF、DOCX 和 TXT。系统会先提取经历与技能，再交给模型分析。'], ['03', '拿到路线图', '从主定位到第一单打法，再到 90 天任务，按优先级直接行动。']].map(([number, title, desc]) => <div key={number} className="rounded-3xl border border-white/10 bg-white/[0.035] p-6"><span className="text-sm font-bold text-cyan-100/80">{number}</span><h3 className="mt-6 text-xl font-semibold">{title}</h3><p className="mt-3 text-sm leading-7 text-white/55">{desc}</p></div>)}
+          </div>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {featureCards.map(({ icon: Icon, title, desc }) => <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.025] p-5"><Icon className="h-5 w-5 text-cyan-100" /><h3 className="mt-4 font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-white/50">{desc}</p></div>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="trust" className="relative z-10 border-y border-white/10 bg-[#0d1017] px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
+          <div><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-100/10 text-cyan-100"><LockKeyhole className="h-5 w-5" /></div><h2 className="mt-5 text-3xl font-semibold tracking-tight">先把安全说清楚。</h2><p className="mt-4 leading-8 text-white/55">你的简历只用于生成这一次成长方案。我们不会把简历正文放进转化统计，也不会在页面上展示你的 API Key。</p></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[['文件处理', '仅用于本次分析请求，分析完成后页面不保留上传入口中的文件对象。'], ['自定义模型', 'API Base URL、Key 和模型名只随本次请求发送，不进入统计事件。'], ['示例内容', '页面展示的路线图是演示内容，不代表任何真实用户结果。'], ['失败可重试', '解析失败、网络超时或模型失败时，会给出文字提示并允许重新上传。']].map(([title, desc]) => <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><div className="flex items-center gap-2 text-sm font-semibold"><HelpCircle className="h-4 w-4 text-cyan-100" />{title}</div><p className="mt-3 text-sm leading-6 text-white/50">{desc}</p></div>)}
+          </div>
+        </div>
+      </section>
+
+      <section className="relative z-10 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-3xl"><div className="text-center"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">FAQ</p><h2 className="mt-4 text-3xl font-semibold tracking-tight">开始前，你可能想知道</h2></div><div className="mt-8 divide-y divide-white/10 rounded-3xl border border-white/10 bg-white/[0.03] px-5">{[['我没有明确的创业方向，也能用吗？', '可以。分析会从你的经历、技能和可迁移资产出发，先给出主定位与备选路径，再把方向拆成可验证的第一步。'], ['支持哪些文件？', '目前支持 PDF、DOCX 和 TXT，单个文件大小限制为 10 MB。扫描版 PDF 可能需要更长的处理时间。'], ['为什么要提供 API Base URL 和 API Key？', '只有在你主动选择自定义模型时才需要填写；默认内置模型不需要任何额外配置。']].map(([question, answer]) => <details key={question} className="group py-5"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-sm font-semibold text-white/85"><span>{question}</span><ChevronDown className="h-4 w-4 flex-none text-white/45 transition group-open:rotate-180" /></summary><p className="mt-3 max-w-2xl text-sm leading-7 text-white/55">{answer}</p></details>)}</div></div>
+      </section>
+
+      <footer className="relative z-10 border-t border-white/10 px-4 py-8 sm:px-6 lg:px-8"><div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm text-white/45 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white/75">ResumeGrowth</p><p className="mt-1 text-xs">从简历出发，找到下一条可执行的路。</p></div><div className="flex flex-wrap gap-5"><a className="transition hover:text-white" href="#preview">结果示例</a><a className="transition hover:text-white" href="#steps">使用步骤</a><a className="transition hover:text-white" href="#trust">隐私与安全</a><a className="transition hover:text-white" href="#top">回到顶部</a></div></div></footer>
     </main>
   );
 }
