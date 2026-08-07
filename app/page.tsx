@@ -544,7 +544,314 @@ function LegacyHome() {
             <div className="mb-4 text-sm font-medium text-white/90">第二步：上传简历</div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <label className="mb-2 block text-sm text-white/75">选择文件（PDF / DOCX / TXT）</lab…3165 tokens truncated…sumeGrowth</span>
+              <label className="mb-2 block text-sm text-white/75">选择文件（PDF / DOCX / TXT）</label>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                onChange={handleFileChange}
+                className="block w-full min-w-0 cursor-pointer rounded-xl border border-white/12 bg-[#12151d] px-3 py-3 text-sm text-white outline-none file:mr-3 file:max-w-[7.5rem] file:overflow-hidden file:text-ellipsis file:whitespace-nowrap file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-black"
+              />
+            </div>
+
+            <div
+              className={cn(
+                'mt-4 rounded-2xl border px-4 py-4',
+                selectedFile ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02]'
+              )}
+            >
+              {selectedFile ? (
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="h-5 w-5 text-emerald-300" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-emerald-200">已上传完成</div>
+                    <div className="break-all text-xs text-emerald-200/70">{selectedFile.name}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-white/50">
+                  <Upload className="h-5 w-5" />
+                  <div className="text-sm">尚未上传文件</div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={analyzeResume}
+              disabled={!selectedFile || isAnalyzing}
+              className={cn(
+                'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-medium transition-all',
+                selectedFile && !isAnalyzing
+                  ? 'bg-white text-black shadow-lg shadow-white/10 hover:bg-white/90'
+                  : 'cursor-not-allowed border border-white/10 bg-white/5 text-white/35'
+              )}
+            >
+              {isAnalyzing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+                  正在分析，可能需要1～3分钟...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  开始分析
+                </>
+              )}
+            </button>
+
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:px-6 sm:py-20">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="mb-3 text-2xl font-semibold tracking-tight sm:text-3xl">你会拿到什么</h2>
+          <p className="mb-10 text-white/60">简洁但完整的增长建议，从“我是谁”到“下一步做什么”。</p>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map((feature) => (
+              <div key={feature.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
+                  <feature.icon className="h-5 w-5" />
+                </div>
+                <h3 className="mb-2 font-medium">{feature.title}</h3>
+                <p className="text-sm leading-relaxed text-white/60">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export default function Home() {
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelOption>('qwen3.5-flash');
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [analysisMeta, setAnalysisMeta] = useState<AnalysisMeta | null>(null);
+  const [reportFileName, setReportFileName] = useState<string | null>(null);
+  const [flowStatus, setFlowStatus] = useState<FlowStatus>('modelSelected');
+  const [analysisStage, setAnalysisStage] = useState('正在准备分析');
+
+  const isCustomModel = selectedModel === 'custom';
+  const backendModel = isCustomModel ? 'claude-4.6-opus' : 'qwen3.5-flash';
+
+  useEffect(() => {
+    trackConversionEvent('page_view');
+  }, []);
+
+  const selectModel = (model: ModelOption) => {
+    setSelectedModel(model);
+    setError(null);
+    setFlowStatus(selectedFile ? 'fileSelected' : 'modelSelected');
+    trackConversionEvent('model_selected', { model });
+  };
+
+  const acceptFile = (file: File | undefined) => {
+    if (!file) return;
+
+    const extension = getFileExtension(file.name);
+    if (!ACCEPTED_FILE_EXTENSIONS.includes(extension)) {
+      setSelectedFile(null);
+      setFlowStatus('error');
+      setError('暂不支持这个文件格式，请上传 PDF、DOCX 或 TXT 文件。');
+      trackConversionEvent('upload_error', { reason: 'unsupported_format', extension: extension || 'unknown' });
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_SIZE) {
+      setSelectedFile(null);
+      setFlowStatus('error');
+      setError('文件不能超过 10 MB，请压缩后再试。');
+      trackConversionEvent('upload_error', { reason: 'file_too_large' });
+      return;
+    }
+
+    setSelectedFile(file);
+    setError(null);
+    setFlowStatus('fileSelected');
+    trackConversionEvent('upload_success', { extension, size_mb: Number((file.size / (1024 * 1024)).toFixed(2)) });
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    acceptFile(event.target.files?.[0]);
+    event.target.value = '';
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    acceptFile(event.dataTransfer.files?.[0]);
+  };
+
+  const clearFile = () => {
+    setSelectedFile(null);
+    setError(null);
+    setFlowStatus('modelSelected');
+  };
+
+  const analyzeResume = async () => {
+    if (!selectedFile) {
+      setFlowStatus('error');
+      setError('请先上传简历文件。');
+      trackConversionEvent('upload_error', { reason: 'missing_file' });
+      return;
+    }
+
+    if (isCustomModel && (!apiBaseUrl.trim() || !apiKey.trim())) {
+      setFlowStatus('error');
+      setError('使用自定义模型时，请先填写 API Base URL 和 API Key。');
+      trackConversionEvent('analysis_error', { reason: 'missing_custom_config' });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setFlowStatus('validating');
+    setError(null);
+    setAnalysisStage('正在读取你的经历');
+    trackConversionEvent('analysis_started', { model: backendModel, extension: getFileExtension(selectedFile.name) });
+
+    try {
+      const formData = new FormData();
+      formData.append('model', backendModel);
+
+      const isPdf = selectedFile.type.includes('pdf') || selectedFile.name.toLowerCase().endsWith('.pdf');
+      let extractedPdfText = '';
+      let renderedPdfImages: string[] = [];
+
+      if (isPdf) {
+        try {
+          extractedPdfText = await extractPdfTextInBrowserWithTimeout(selectedFile);
+          if (extractedPdfText.trim().length >= 30) {
+            formData.append('extractedText', extractedPdfText.trim());
+            formData.append('fileName', selectedFile.name);
+            formData.append('fileType', selectedFile.type || 'application/pdf');
+          }
+        } catch (browserPdfError) {
+          console.warn('[client] pdf text extraction skipped, fallback to file upload', browserPdfError);
+        }
+
+        if (extractedPdfText.trim().length < 30) {
+          setAnalysisStage('正在处理 PDF 页面');
+          try {
+            renderedPdfImages = await renderPdfPagesInBrowser(selectedFile);
+            if (renderedPdfImages.length) {
+              formData.append('fileName', selectedFile.name);
+              formData.append('fileType', selectedFile.type || 'application/pdf');
+            }
+            renderedPdfImages.forEach((image) => formData.append('pdfImages', image));
+          } catch (browserPdfRenderError) {
+            console.warn('[client] pdf image rendering skipped, fallback to server rendering', browserPdfRenderError);
+          }
+        }
+      }
+
+      const hasClientPdfPayload = extractedPdfText.trim().length >= 30 || renderedPdfImages.length > 0;
+      if (!isPdf || !hasClientPdfPayload) formData.append('file', selectedFile);
+
+      if (isCustomModel) {
+        formData.append('apiBaseUrl', apiBaseUrl.trim());
+        formData.append('apiKey', apiKey.trim());
+        formData.append('modelId', modelId.trim());
+      }
+
+      setFlowStatus('analyzing');
+      setAnalysisStage('正在识别优势资产与商业化方向');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), ANALYZE_REQUEST_TIMEOUT_MS);
+      let response: Response;
+
+      try {
+        response = await fetch('/api/analyze', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+      } catch (fetchError) {
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error(`分析超时，已等待 ${Math.round(ANALYZE_REQUEST_TIMEOUT_MS / 1000)} 秒。请重试，或优先上传 DOCX。`);
+        }
+        throw new Error('网络连接失败，请检查网络后重试。');
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      const raw = await response.text();
+      let payload: any = null;
+      try {
+        payload = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error('分析接口返回异常，请稍后重试。');
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error || '分析失败，请稍后重试。');
+      }
+
+      trackConversionEvent('analysis_success', { model: backendModel });
+      setResult(payload.result);
+      setAnalysisMeta(payload.analysisMeta || null);
+      setReportFileName(selectedFile.name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '分析失败，请稍后重试。';
+      setError(message);
+      setFlowStatus('error');
+      trackConversionEvent('analysis_error', { model: backendModel });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <ReportView
+        result={result}
+        analysisMeta={analysisMeta}
+        reportFileName={reportFileName}
+        onReset={() => {
+          setResult(null);
+          setReportFileName(null);
+          setSelectedFile(null);
+          setFlowStatus('modelSelected');
+        }}
+      />
+    );
+  }
+
+  const featureCards = [
+    { icon: TrendingUp, title: '找到主定位', desc: '从经历与技能中识别最值得优先验证的商业化方向。' },
+    { icon: ArrowRight, title: '明确第一单', desc: '把抽象优势拆成具体的服务、客户与行动入口。' },
+    { icon: Clock3, title: '规划 90 天', desc: '按周拆解验证、交付、获客与复盘任务。' },
+    { icon: ShieldCheck, title: '守住隐私', desc: '简历只用于本次分析，统计事件不包含简历正文。' },
+  ];
+
+  const reportPreview = [
+    ['主定位', '知识型服务顾问'],
+    ['第一单打法', '用一次小型诊断换取真实反馈'],
+    ['90 天节奏', '定位 → 验证 → 交付 → 复购'],
+  ];
+
+  return (
+    <main id="top" className="min-h-screen overflow-x-hidden bg-[#080a0f] text-white">
+      <div className="absolute inset-x-0 top-0 -z-0 h-[620px] overflow-hidden bg-[radial-gradient(circle_at_18%_0%,rgba(14,165,233,0.19),transparent_38%),radial-gradient(circle_at_92%_8%,rgba(168,85,247,0.16),transparent_34%)]" />
+
+      <header className="relative z-10 border-b border-white/10 bg-[#080a0f]/75 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <a href="#top" className="flex items-center gap-3" aria-label="ResumeGrowth 首页">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sm font-black text-[#080a0f]">R</span>
+            <span>
+              <span className="block text-sm font-semibold tracking-wide">ResumeGrowth</span>
               <span className="hidden text-[11px] text-white/45 sm:block">把经历变成下一步</span>
             </span>
           </a>
